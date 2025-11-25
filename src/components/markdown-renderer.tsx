@@ -250,6 +250,20 @@ function MarkdownLink({ href, children, ...props }: React.AnchorHTMLAttributes<H
 }
 
 /**
+ * Preprocesses markdown content to fix common formatting issues.
+ * Fixes headers without spaces (e.g., ##Header -> ## Header)
+ * 
+ * @param content - Raw markdown content
+ * @returns Preprocessed markdown content
+ */
+function preprocessMarkdown(content: string): string {
+  // Fix headers without space after # symbols
+  // Matches: ##Header or ###Header etc. (but not URLs like http://)
+  // Replaces with: ## Header or ### Header
+  return content.replace(/^(#{1,6})([^\s#])/gm, '$1 $2');
+}
+
+/**
  * Renders markdown content with proper styling.
  * Uses react-markdown for parsing and rendering.
  * 
@@ -260,6 +274,9 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   content, 
   className 
 }: MarkdownRendererProps) {
+  // Preprocess content to fix common markdown issues
+  const processedContent = preprocessMarkdown(content);
+  
   return (
     <div className={cn('prose prose-slate dark:prose-invert max-w-none', className)}>
       <ReactMarkdown
@@ -365,7 +382,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
           img: MarkdownImage,
         }}
       >
-        {content}
+        {processedContent}
       </ReactMarkdown>
     </div>
   );

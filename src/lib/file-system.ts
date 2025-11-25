@@ -305,14 +305,24 @@ export function getFileByPath(files: File[], path: string): File | undefined {
 }
 
 /**
- * Reads the .git/config file to extract the wiki name from the remote URL.
+ * Azure DevOps context information extracted from git config
+ */
+export interface AzureDevOpsContext {
+  organization: string;
+  project: string;
+  wikiName: string;
+  baseUrl: string;
+}
+
+/**
+ * Reads the .git/config file to extract Azure DevOps context.
  * 
  * @param rootHandle - Directory handle for the wiki root
- * @returns Wiki name (e.g., "KK-Laaneportal.wiki") or null if not found
+ * @returns Azure DevOps context or null if not found
  */
-export async function getWikiNameFromGit(
+export async function getAzureDevOpsContext(
   rootHandle: FileSystemDirectoryHandle
-): Promise<string | null> {
+): Promise<AzureDevOpsContext | null> {
   try {
     // Try to get .git directory
     const gitHandle = await rootHandle.getDirectoryHandle('.git');
@@ -332,25 +342,51 @@ export async function getWikiNameFromGit(
     }
     
     const remoteUrl = urlMatch[1].trim();
-    console.log('[getWikiNameFromGit] Remote URL:', remoteUrl);
+    console.log('[getAzureDevOpsContext] Remote URL:', remoteUrl);
     
-    // Extract wiki name from URL
-    // Pattern for Azure DevOps: .../_git/{wiki-name} or .../_wiki/wikis/{wiki-name}
-    const gitMatch = remoteUrl.match(/\/_git\/([^/?]+)/);
-    const wikiMatch = remoteUrl.match(/\/wikis\/([^/?]+)/);
+    // Parse Azure DevOps URL
+    // Format: https://{org}.visualstudio.com/{project}/_git/{wiki-name}
+    // or: https://dev.azure.com/{org}/{project}/_git/{wiki-name}
+    const visualStudioMatch = remoteUrl.match(/https?:\/\/([^.]+)\.visualstudio\.com\/([^/]+)\/_git\/([^/?]+)/);
+    const devAzureMatch = remoteUrl.match(/https?:\/\/dev\.azure\.com\/([^/]+)\/([^/]+)\/_git\/([^/?]+)/);
     
-    const match = gitMatch || wikiMatch;
+    const match = visualStudioMatch || devAzureMatch;
     if (match) {
-      const wikiName = decodeURIComponent(match[1]);
-      console.log('[getWikiNameFromGit] Extracted wiki name:', wikiName);
-      return wikiName;
+      const organization = match[1];
+      const project = decodeURIComponent(match[2]);
+      const wikiName = decodeURIComponent(match[3]);
+      const baseUrl = visualStudioMatch 
+        ? `https://${organization}.visualstudio.com`
+        : `https://dev.azure.com/${organization}`;
+      
+      console.log('[getAzureDevOpsContext] Extracted context:', { organization, project, wikiName, baseUrl });
+      
+      return {
+        organization,
+        project,
+        wikiName,
+        baseUrl,
+      };
     }
     
     return null;
   } catch (error) {
-    console.log('[getWikiNameFromGit] Could not read .git/config:', error);
+    console.log('[getAzureDevOpsContext] Could not read .git/config:', error);
     return null;
   }
+}
+
+/**
+ * Reads the .git/config file to extract the wiki name from the remote URL.
+ * 
+ * @param rootHandle - Directory handle for the wiki root
+ * @returns Wiki name (e.g., "KK-Laaneportal.wiki") or null if not found
+ */
+export async function getWikiNameFromGit(
+  rootHandle: FileSystemDirectoryHandle
+): Promise<string | null> {
+  const context = await getAzureDevOpsContext(rootHandle);
+  return context?.wikiName || null;
 }
 
 /**

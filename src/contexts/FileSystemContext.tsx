@@ -8,6 +8,7 @@ import type {
   FileContent,
   SearchIndexEntry,
   SearchMode,
+  AzureDevOpsContext,
 } from '@/types';
 import {
   openDirectory,
@@ -20,6 +21,7 @@ import {
   clearDirectoryHandle,
   isFileSystemAccessSupported,
   getWikiNameFromGit,
+  getAzureDevOpsContext,
 } from '@/lib/file-system';
 import { pickDirectory, verifyPermission, readDirectory } from '@/lib/fs-access';
 import { useWorkers } from '@/hooks/use-workers';
@@ -51,6 +53,7 @@ const initialState: FileSystemState = {
   expandedDirs: new Set(),
   allFiles: [],
   wikiName: null,
+  azureDevOpsContext: null,
 };
 
 // Action types
@@ -68,6 +71,7 @@ type Action =
   | { type: 'SET_EXPANDED_DIRS'; payload: Set<string> }
   | { type: 'SET_ALL_FILES'; payload: File[] }
   | { type: 'SET_WIKI_NAME'; payload: string | null }
+  | { type: 'SET_AZURE_DEVOPS_CONTEXT'; payload: AzureDevOpsContext | null }
   | { type: 'CLEAR_ALL' };
 
 // Reducer
@@ -115,6 +119,9 @@ function fileSystemReducer(state: FileSystemState, action: Action): FileSystemSt
     case 'SET_WIKI_NAME':
       return { ...state, wikiName: action.payload };
     
+    case 'SET_AZURE_DEVOPS_CONTEXT':
+      return { ...state, azureDevOpsContext: action.payload };
+    
     case 'CLEAR_ALL':
       return { ...initialState };
     
@@ -139,11 +146,19 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   // Initialize workers
   const { treeWorker, searchWorker } = useWorkers();
 
-  // Helper to extract wiki name from directory handle
+  // Helper to extract wiki name and Azure DevOps context from directory handle
   const getWikiName = useCallback(async (handle: FileSystemDirectoryHandle | null): Promise<string | null> => {
     if (!handle) return null;
     
-    // First try to get it from .git/config
+    // First try to get Azure DevOps context from .git/config
+    const azureContext = await getAzureDevOpsContext(handle);
+    if (azureContext) {
+      console.log('[getWikiName] Got Azure DevOps context from git:', azureContext);
+      dispatch({ type: 'SET_AZURE_DEVOPS_CONTEXT', payload: azureContext });
+      return azureContext.wikiName;
+    }
+    
+    // Fallback to old method
     const gitWikiName = await getWikiNameFromGit(handle);
     if (gitWikiName) {
       console.log('[getWikiName] Got wiki name from git:', gitWikiName);

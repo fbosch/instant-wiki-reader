@@ -35,6 +35,13 @@ export interface SearchIndexEntry {
 
 export type PermissionState = 'granted' | 'denied' | 'prompt' | 'unknown';
 
+export interface AzureDevOpsContext {
+  organization: string;
+  project: string;
+  wikiName: string;
+  baseUrl: string;
+}
+
 export interface FileSystemState {
   rootHandle: FileSystemDirectoryHandle | null;
   directoryTree: DirectoryNode | null;
@@ -50,6 +57,7 @@ export interface FileSystemState {
   expandedDirs: Set<string>;
   allFiles: File[]; // All files loaded from the directory
   wikiName: string | null; // Name of the wiki (e.g., "KK-Laaneportal.wiki")
+  azureDevOpsContext: AzureDevOpsContext | null; // Azure DevOps context for work item links
 }
 
 export interface FileSystemActions {

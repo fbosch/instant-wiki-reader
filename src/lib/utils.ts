@@ -63,6 +63,72 @@ export function formatFilePath(path: string): string {
   return path.split('/').map(part => decodeURIComponent(part)).join('/');
 }
 
+/**
+ * Table of contents entry
+ */
+export interface TocEntry {
+  id: string;
+  text: string;
+  level: number;
+  children: TocEntry[];
+}
+
+/**
+ * Extracts headings from markdown content to build a table of contents.
+ * Handles malformed headers (without space after #) by preprocessing.
+ * 
+ * @param content - Markdown content
+ * @returns Hierarchical table of contents entries
+ */
+export function extractTableOfContents(content: string): TocEntry[] {
+  // Preprocess to fix headers without spaces (e.g., ##Header -> ## Header)
+  const fixedContent = content.replace(/^(#{1,6})([^\s#])/gm, '$1 $2');
+  
+  // Extract all headers with regex
+  const headerRegex = /^(#{1,6})\s+(.+)$/gm;
+  const entries: TocEntry[] = [];
+  const stack: TocEntry[] = [];
+  
+  let match;
+  while ((match = headerRegex.exec(fixedContent)) !== null) {
+    const level = match[1].length;
+    const text = match[2].trim();
+    
+    // Generate ID from heading text (lowercase, replace spaces/special chars with hyphens)
+    const id = text
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    
+    const entry: TocEntry = {
+      id,
+      text,
+      level,
+      children: [],
+    };
+    
+    // Build hierarchy
+    // Pop stack until we find a parent with lower level
+    while (stack.length > 0 && stack[stack.length - 1].level >= level) {
+      stack.pop();
+    }
+    
+    if (stack.length === 0) {
+      // Top-level entry
+      entries.push(entry);
+    } else {
+      // Add as child of the last item in stack
+      stack[stack.length - 1].children.push(entry);
+    }
+    
+    stack.push(entry);
+  }
+  
+  return entries;
+}
+
 
 /**
  * Extracts file path and wiki name from Azure DevOps wiki URL.
