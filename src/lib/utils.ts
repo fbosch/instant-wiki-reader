@@ -62,3 +62,113 @@ export function formatFileName(fileName: string, removeExtension = false): strin
 export function formatFilePath(path: string): string {
   return path.split('/').map(part => decodeURIComponent(part)).join('/');
 }
+
+
+/**
+ * Extracts file path and wiki name from Azure DevOps wiki URL.
+ * 
+ * Azure DevOps wiki URLs have formats like:
+ * - https://{org}.visualstudio.com/{project}/_wiki/wikis/{wiki-name}/{page-id}/{page-path}
+ * - https://dev.azure.com/{org}/{project}/_wiki/wikis/{wiki-name}?pagePath=%2FPath%2FTo%2FFile
+ * 
+ * @param url - Azure DevOps wiki URL
+ * @returns Object with wikiName and filePath, or null if not a valid Azure DevOps wiki link
+ */
+export function extractAzureDevOpsPath(url: string): { wikiName: string; filePath: string } | null {
+  try {
+    const urlObj = new URL(url);
+    
+    console.log('[extractAzureDevOpsPath] Parsing URL:', url);
+    console.log('[extractAzureDevOpsPath] Hostname:', urlObj.hostname);
+    console.log('[extractAzureDevOpsPath] Pathname:', urlObj.pathname);
+    
+    // Check if it's an Azure DevOps URL
+    if (!urlObj.hostname.includes('dev.azure.com') && !urlObj.hostname.includes('visualstudio.com')) {
+      console.log('[extractAzureDevOpsPath] Not an Azure DevOps URL');
+      return null;
+    }
+    
+    // Check if it's a wiki URL
+    if (!urlObj.pathname.includes('/_wiki/')) {
+      console.log('[extractAzureDevOpsPath] Not a wiki URL');
+      return null;
+    }
+    
+    // Extract wiki name and path from URL
+    // Pattern: /_wiki/wikis/{wiki-name}/{page-id}/{page-path...}
+    // or: /_wiki/wikis/{wiki-name}?pagePath=...
+    const wikiMatch = urlObj.pathname.match(/\/_wiki\/wikis\/([^/?]+)/);
+    console.log('[extractAzureDevOpsPath] Wiki match:', wikiMatch);
+    
+    if (!wikiMatch) {
+      console.log('[extractAzureDevOpsPath] Could not extract wiki name');
+      return null;
+    }
+    
+    const wikiName = decodeURIComponent(wikiMatch[1]);
+    console.log('[extractAzureDevOpsPath] Wiki name:', wikiName);
+    
+    // Try to get path from URL path segments (newer format)
+    const pathAfterWikiName = urlObj.pathname.split(`/wikis/${wikiMatch[1]}/`)[1];
+    console.log('[extractAzureDevOpsPath] Path after wiki name:', pathAfterWikiName);
+    
+    if (pathAfterWikiName) {
+      // Remove page ID (first segment, typically a number)
+      const segments = pathAfterWikiName.split('/');
+      console.log('[extractAzureDevOpsPath] Path segments:', segments);
+      
+      // Skip first segment if it's a number (page ID)
+      const pathSegments = /^\d+$/.test(segments[0]) ? segments.slice(1) : segments;
+      console.log('[extractAzureDevOpsPath] Path segments after removing ID:', pathSegments);
+      
+      let filePath = pathSegments.map(s => decodeURIComponent(s)).join('/');
+      if (!filePath.endsWith('.md')) {
+        filePath = `${filePath}.md`;
+      }
+      
+      console.log('[extractAzureDevOpsPath] Final file path:', filePath);
+      return { wikiName, filePath };
+    }
+    
+    // Try to get path from pagePath query parameter (older format)
+    const pagePath = urlObj.searchParams.get('pagePath');
+    console.log('[extractAzureDevOpsPath] Page path parameter:', pagePath);
+    
+    if (pagePath) {
+      const decoded = decodeURIComponent(pagePath);
+      const withoutLeadingSlash = decoded.startsWith('/') ? decoded.slice(1) : decoded;
+      
+      let filePath = withoutLeadingSlash;
+      if (!filePath.endsWith('.md')) {
+        filePath = `${filePath}.md`;
+      }
+      
+      console.log('[extractAzureDevOpsPath] Final file path from query:', filePath);
+      return { wikiName, filePath };
+    }
+    
+    console.log('[extractAzureDevOpsPath] No path found');
+    return null;
+  } catch (error) {
+    // Invalid URL
+    console.error('[extractAzureDevOpsPath] Error parsing URL:', error);
+    return null;
+  }
+}
+
+/**
+ * Checks if a URL is an Azure DevOps wiki link matching the current wiki.
+ * 
+ * @param url - URL to check
+ * @param currentWikiName - Name of the currently selected wiki (e.g., "KK-Laaneportal.wiki")
+ * @returns true if this is an Azure DevOps link to the same wiki
+ */
+export function isMatchingWikiLink(url: string, currentWikiName: string | null): boolean {
+  if (!currentWikiName) return false;
+  
+  const extracted = extractAzureDevOpsPath(url);
+  if (!extracted) return false;
+  
+  return extracted.wikiName === currentWikiName;
+}
+

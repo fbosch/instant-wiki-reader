@@ -48,6 +48,8 @@ export interface FileSystemState {
   lastRefresh: number | null;
   searchIndex: SearchIndexEntry[];
   expandedDirs: Set<string>;
+  allFiles: File[]; // All files loaded from the directory
+  wikiName: string | null; // Name of the wiki (e.g., "KK-Laaneportal.wiki")
 }
 
 export interface FileSystemActions {

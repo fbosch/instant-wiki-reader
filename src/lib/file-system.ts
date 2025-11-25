@@ -280,6 +280,55 @@ export function getFileByPath(files: File[], path: string): File | undefined {
 }
 
 /**
+ * Reads the .git/config file to extract the wiki name from the remote URL.
+ * 
+ * @param rootHandle - Directory handle for the wiki root
+ * @returns Wiki name (e.g., "KK-Laaneportal.wiki") or null if not found
+ */
+export async function getWikiNameFromGit(
+  rootHandle: FileSystemDirectoryHandle
+): Promise<string | null> {
+  try {
+    // Try to get .git directory
+    const gitHandle = await rootHandle.getDirectoryHandle('.git');
+    
+    // Try to get config file
+    const configHandle = await gitHandle.getFileHandle('config');
+    const configFile = await configHandle.getFile();
+    const configText = await configFile.text();
+    
+    // Parse git config to find remote URL
+    // Look for patterns like:
+    // [remote "origin"]
+    //   url = https://kommunekredit.visualstudio.com/KK%20Laaneportal/_git/KK-Laaneportal.wiki
+    const urlMatch = configText.match(/url\s*=\s*(.+)/);
+    if (!urlMatch) {
+      return null;
+    }
+    
+    const remoteUrl = urlMatch[1].trim();
+    console.log('[getWikiNameFromGit] Remote URL:', remoteUrl);
+    
+    // Extract wiki name from URL
+    // Pattern for Azure DevOps: .../_git/{wiki-name} or .../_wiki/wikis/{wiki-name}
+    const gitMatch = remoteUrl.match(/\/_git\/([^/?]+)/);
+    const wikiMatch = remoteUrl.match(/\/wikis\/([^/?]+)/);
+    
+    const match = gitMatch || wikiMatch;
+    if (match) {
+      const wikiName = decodeURIComponent(match[1]);
+      console.log('[getWikiNameFromGit] Extracted wiki name:', wikiName);
+      return wikiName;
+    }
+    
+    return null;
+  } catch (error) {
+    console.log('[getWikiNameFromGit] Could not read .git/config:', error);
+    return null;
+  }
+}
+
+/**
  * Read file contents as text.
  * 
  * @param file - File to read

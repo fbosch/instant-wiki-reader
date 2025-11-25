@@ -1,10 +1,12 @@
 'use client';
 
-import { memo, useState, useEffect } from 'react';
+import { memo, useState, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkWikiLink from 'remark-wiki-link';
+import rehypeRaw from 'rehype-raw';
 import rehypeHighlight from 'rehype-highlight';
-import { cn } from '@/lib/utils';
+import { cn, extractAzureDevOpsPath, isMatchingWikiLink } from '@/lib/utils';
 import { useFileSystem } from '@/contexts/FileSystemContext';
 
 interface MarkdownRendererProps {
@@ -47,6 +49,36 @@ function resolveImagePath(imageSrc: string, currentFilePath: string): string {
     // Relative to current directory
     return currentDir ? `${currentDir}/${imageSrc}` : imageSrc;
   }
+}
+
+/**
+ * Resolves a link path to find the target file in the wiki
+ */
+function resolveLinkPath(linkHref: string, currentFilePath: string, allFiles: File[]): string | null {
+  // If external URL, return null (let it open normally)
+  if (linkHref.startsWith('http://') || linkHref.startsWith('https://') || linkHref.startsWith('mailto:')) {
+    return null;
+  }
+
+  // Remove any hash/anchor from the link
+  const [pathPart] = linkHref.split('#');
+  if (!pathPart) return null;
+
+  // Resolve relative path using same logic as images
+  let resolvedPath = resolveImagePath(pathPart, currentFilePath);
+  
+  // If doesn't end with .md, try adding it
+  if (!resolvedPath.endsWith('.md')) {
+    resolvedPath = `${resolvedPath}.md`;
+  }
+
+  // Check if file exists
+  const fileExists = allFiles.some((file) => {
+    const filePath = file.webkitRelativePath || file.name;
+    return filePath === resolvedPath;
+  });
+
+  return fileExists ? resolvedPath : null;
 }
 
 // Cache for blob URLs to avoid recreating them
@@ -150,6 +182,103 @@ function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImage
 }
 
 /**
+ * Link component that handles both external URLs and internal wiki links
+ */
+function MarkdownLink({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+  const { currentFile, openFile, allFiles, wikiName } = useFileSystem();
+
+  const handleClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!href || !currentFile) return;
+
+    console.log('[MarkdownLink] Clicked link:', href);
+    console.log('[MarkdownLink] Current wiki name:', wikiName);
+
+    // First, check if this is an Azure DevOps wiki link that maps to a local file
+    const azureDevOpsInfo = extractAzureDevOpsPath(href);
+    console.log('[MarkdownLink] Azure DevOps info:', azureDevOpsInfo);
+    
+    if (azureDevOpsInfo) {
+      // Check if this link is to the same wiki we have open
+      console.log('[MarkdownLink] Comparing wiki names:', azureDevOpsInfo.wikiName, '===', wikiName);
+      
+      if (azureDevOpsInfo.wikiName === wikiName) {
+        console.log('[MarkdownLink] Wiki name matches! Looking for file:', azureDevOpsInfo.filePath);
+        
+        // Check if we have this file locally
+        const localFile = allFiles.find((file) => {
+          const filePath = file.webkitRelativePath || file.name;
+          return filePath === azureDevOpsInfo.filePath;
+        });
+
+        console.log('[MarkdownLink] Local file found:', !!localFile);
+
+        if (localFile) {
+          // We have this file locally - navigate internally
+          e.preventDefault();
+          console.log('[MarkdownLink] Navigating to local file:', azureDevOpsInfo.filePath);
+          openFile(azureDevOpsInfo.filePath).catch((error) => {
+            console.error('Failed to navigate to Azure DevOps linked file:', azureDevOpsInfo.filePath, error);
+          });
+          return;
+        } else {
+          console.log('[MarkdownLink] File not found locally, will open external link');
+        }
+      } else {
+        console.log('[MarkdownLink] Wiki name mismatch, will open external link');
+      }
+      // If different wiki or file not found locally, let it open as external link (fall through)
+    }
+
+    // External links - open normally
+    if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
+      return; // Let the browser handle it
+    }
+
+    // Internal links - intercept and navigate within the app
+    e.preventDefault();
+
+    // Remove hash/anchor from link
+    const [pathPart, hash] = href.split('#');
+    if (!pathPart) {
+      // Just an anchor link, scroll to it
+      if (hash) {
+        const element = document.getElementById(hash);
+        element?.scrollIntoView({ behavior: 'smooth' });
+      }
+      return;
+    }
+
+    // Resolve the path
+    let resolvedPath = resolveImagePath(pathPart, currentFile.path);
+    
+    // If doesn't end with .md, try adding it
+    if (!resolvedPath.endsWith('.md')) {
+      resolvedPath = `${resolvedPath}.md`;
+    }
+
+    // Try to open the file
+    openFile(resolvedPath).catch((error) => {
+      console.error('Failed to navigate to:', resolvedPath, error);
+    });
+  }, [href, currentFile, openFile, allFiles, wikiName]);
+
+  const isExternal = href?.startsWith('http://') || href?.startsWith('https://');
+
+  return (
+    <a
+      href={href}
+      onClick={handleClick}
+      className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+      target={isExternal ? '_blank' : undefined}
+      rel={isExternal ? 'noopener noreferrer' : undefined}
+      {...props}
+    >
+      {children}
+    </a>
+  );
+}
+
+/**
  * Renders markdown content with proper styling.
  * Uses react-markdown for parsing and rendering.
  * 
@@ -163,8 +292,15 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   return (
     <div className={cn('prose prose-slate dark:prose-invert max-w-none', className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        remarkPlugins={[
+          remarkGfm,
+          [remarkWikiLink, {
+            // Configure wiki links to preserve spaces (don't convert to dashes)
+            pageResolver: (name: string) => [name],
+            hrefTemplate: (permalink: string) => permalink,
+          }],
+        ]}
+        rehypePlugins={[rehypeRaw, rehypeHighlight]}
         components={{
           // Custom heading rendering with anchor links
           h1: ({ children, ...props }) => (
@@ -211,18 +347,8 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
             // Let rehype-highlight handle block code styling
             return <code className={className} {...props}>{children}</code>;
           },
-          // Links with proper styling
-          a: ({ children, href, ...props }) => (
-            <a
-              href={href}
-              className="text-blue-600 dark:text-blue-400 hover:underline"
-              target={href?.startsWith('http') ? '_blank' : undefined}
-              rel={href?.startsWith('http') ? 'noopener noreferrer' : undefined}
-              {...props}
-            >
-              {children}
-            </a>
-          ),
+          // Links - use custom component for internal navigation
+          a: MarkdownLink,
           // Blockquotes
           blockquote: ({ children, ...props }) => (
             <blockquote

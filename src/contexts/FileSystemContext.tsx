@@ -19,6 +19,7 @@ import {
   saveDirectoryHandle,
   clearDirectoryHandle,
   isFileSystemAccessSupported,
+  getWikiNameFromGit,
 } from '@/lib/file-system';
 import { pickDirectory, verifyPermission, readDirectory } from '@/lib/fs-access';
 import { useWorkers } from '@/hooks/use-workers';
@@ -48,6 +49,8 @@ const initialState: FileSystemState = {
   lastRefresh: null,
   searchIndex: [],
   expandedDirs: new Set(),
+  allFiles: [],
+  wikiName: null,
 };
 
 // Action types
@@ -63,6 +66,8 @@ type Action =
   | { type: 'SET_LAST_REFRESH'; payload: number }
   | { type: 'SET_SEARCH_INDEX'; payload: SearchIndexEntry[] }
   | { type: 'SET_EXPANDED_DIRS'; payload: Set<string> }
+  | { type: 'SET_ALL_FILES'; payload: File[] }
+  | { type: 'SET_WIKI_NAME'; payload: string | null }
   | { type: 'CLEAR_ALL' };
 
 // Reducer
@@ -104,6 +109,12 @@ function fileSystemReducer(state: FileSystemState, action: Action): FileSystemSt
     case 'SET_EXPANDED_DIRS':
       return { ...state, expandedDirs: action.payload };
     
+    case 'SET_ALL_FILES':
+      return { ...state, allFiles: action.payload };
+    
+    case 'SET_WIKI_NAME':
+      return { ...state, wikiName: action.payload };
+    
     case 'CLEAR_ALL':
       return { ...initialState };
     
@@ -127,6 +138,22 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   
   // Initialize workers
   const { treeWorker, searchWorker } = useWorkers();
+
+  // Helper to extract wiki name from directory handle
+  const getWikiName = useCallback(async (handle: FileSystemDirectoryHandle | null): Promise<string | null> => {
+    if (!handle) return null;
+    
+    // First try to get it from .git/config
+    const gitWikiName = await getWikiNameFromGit(handle);
+    if (gitWikiName) {
+      console.log('[getWikiName] Got wiki name from git:', gitWikiName);
+      return gitWikiName;
+    }
+    
+    // Fallback to directory name
+    console.log('[getWikiName] Using directory handle name:', handle.name);
+    return handle.name;
+  }, []);
 
   // Helper function to build tree using worker (with fallback)
   const buildTreeWithWorker = useCallback(async (files: File[]): Promise<DirectoryNode> => {
@@ -187,11 +214,16 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
       dispatch({ type: 'SET_ROOT_HANDLE', payload: savedHandle });
       dispatch({ type: 'SET_PERMISSION_STATE', payload: 'granted' });
       
+      // Get and set wiki name
+      const wikiNameValue = await getWikiName(savedHandle);
+      dispatch({ type: 'SET_WIKI_NAME', payload: wikiNameValue });
+      
       // Auto-load the directory
       try {
         dispatch({ type: 'SET_IS_SCANNING', payload: true });
         const files = await readDirectory(savedHandle);
         setAllFiles(files);
+        dispatch({ type: 'SET_ALL_FILES', payload: files });
         
         const tree = await buildTreeWithWorker(files);
         dispatch({ type: 'SET_DIRECTORY_TREE', payload: tree });
@@ -231,6 +263,10 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         dispatch({ type: 'SET_ROOT_HANDLE', payload: handle });
         dispatch({ type: 'SET_PERMISSION_STATE', payload: 'granted' });
         
+        // Get and set wiki name
+        const wikiNameValue = await getWikiName(handle);
+        dispatch({ type: 'SET_WIKI_NAME', payload: wikiNameValue });
+        
         // Save handle for future use
         await saveDirectoryHandle(handle);
 
@@ -243,6 +279,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
       }
 
       setAllFiles(files);
+      dispatch({ type: 'SET_ALL_FILES', payload: files });
       
       // Build directory tree in worker
       const tree = await buildTreeWithWorker(files);
@@ -341,6 +378,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
 
       const files = await readDirectory(state.rootHandle);
       setAllFiles(files);
+      dispatch({ type: 'SET_ALL_FILES', payload: files });
 
       const tree = await buildTreeWithWorker(files);
       dispatch({ type: 'SET_DIRECTORY_TREE', payload: tree });
