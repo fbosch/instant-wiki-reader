@@ -133,9 +133,9 @@ function HomeContent() {
       {/* Main content area */}
       <main className="flex-1 overflow-y-auto h-full">
         {ctx.currentFile ? (
-          <div className="flex gap-8 max-w-7xl mx-auto p-8">
-            {/* Main content */}
-            <div className="flex-1 min-w-0">
+          <div className="flex gap-8 w-full mx-auto p-8 pr-4">
+            {/* Main content - uses available space */}
+            <div className="flex-1 min-w-0 max-w-5xl">
               <div className="mb-6">
                 <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50 mb-2">
                   {formatFileName(ctx.currentFile.path.split('/').pop() || '', true)}
@@ -148,7 +148,7 @@ function HomeContent() {
             </div>
             
             {/* Table of Contents - sticky sidebar */}
-            <aside className="hidden lg:block w-64 flex-shrink-0">
+            <aside className="hidden xl:block w-72 flex-shrink-0">
               <div className="sticky top-8">
                 <TableOfContents content={ctx.currentFile.content} />
               </div>

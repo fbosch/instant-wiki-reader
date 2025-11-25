@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import remarkWikiLink from 'remark-wiki-link';
 import rehypeRaw from 'rehype-raw';
 import rehypeHighlight from 'rehype-highlight';
+import { match, P } from 'ts-pattern';
 import { cn, extractAzureDevOpsPath, findFileFlexible } from '@/lib/utils';
 import { useFileSystem } from '@/contexts/FileSystemContext';
 
@@ -163,74 +164,80 @@ function MarkdownLink({ href, children, ...props }: React.AnchorHTMLAttributes<H
     if (!href || !currentFile) return;
 
     console.log('[MarkdownLink] Clicked link:', href);
-    console.log('[MarkdownLink] Current wiki name:', wikiName);
 
-    // First, check if this is an Azure DevOps wiki link that maps to a local file
+    // Use pattern matching to handle different link types
     const azureDevOpsInfo = extractAzureDevOpsPath(href);
-    console.log('[MarkdownLink] Azure DevOps info:', azureDevOpsInfo);
     
-    if (azureDevOpsInfo) {
-      // Check if this link is to the same wiki we have open
-      console.log('[MarkdownLink] Comparing wiki names:', azureDevOpsInfo.wikiName, '===', wikiName);
-      
-      if (azureDevOpsInfo.wikiName === wikiName) {
-        console.log('[MarkdownLink] Wiki name matches! Looking for file:', azureDevOpsInfo.filePath);
-        
-        // Use flexible matching to handle Azure DevOps wiki naming variations
-        const localFile = findFileFlexible(allFiles, azureDevOpsInfo.filePath);
-
-        if (localFile) {
-          // We have this file locally - navigate internally
-          e.preventDefault();
-          const localFilePath = localFile.webkitRelativePath || localFile.name;
-          console.log('[MarkdownLink] Matched file:', localFilePath);
-          console.log('[MarkdownLink] Navigating to local file');
-          openFile(localFilePath).catch((error) => {
-            console.error('Failed to navigate to Azure DevOps linked file:', localFilePath, error);
-          });
-          return;
-        } else {
-          console.log('[MarkdownLink] File not found locally after trying all matching strategies');
-          console.log('[MarkdownLink] Searched for variations of:', azureDevOpsInfo.filePath);
-          console.log('[MarkdownLink] Will open external link');
+    match({ href, azureDevOpsInfo, wikiName })
+      // Pattern 1: Azure DevOps wiki link to same wiki with local file
+      .with(
+        {
+          azureDevOpsInfo: P.not(P.nullish),
+          wikiName: P.when((name) => name === azureDevOpsInfo?.wikiName),
+        },
+        ({ azureDevOpsInfo: info }) => {
+          console.log('[MarkdownLink] Azure DevOps wiki link - searching locally');
+          const localFile = findFileFlexible(allFiles, info!.filePath);
+          
+          return match(localFile)
+            .with(P.not(P.nullish), (file) => {
+              e.preventDefault();
+              const localFilePath = file.webkitRelativePath || file.name;
+              console.log('[MarkdownLink] Found local file:', localFilePath);
+              openFile(localFilePath).catch((error) => {
+                console.error('Failed to open local file:', error);
+              });
+              return true; // Handled
+            })
+            .otherwise(() => {
+              console.log('[MarkdownLink] File not found locally, opening external link');
+              return false; // Not handled, will open externally
+            });
         }
-      } else {
-        console.log('[MarkdownLink] Wiki name mismatch, will open external link');
-      }
-      // If different wiki or file not found locally, let it open as external link (fall through)
-    }
-
-    // External links - open normally
-    if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
-      return; // Let the browser handle it
-    }
-
-    // Internal links - intercept and navigate within the app
-    e.preventDefault();
-
-    // Remove hash/anchor from link
-    const [pathPart, hash] = href.split('#');
-    if (!pathPart) {
-      // Just an anchor link, scroll to it
-      if (hash) {
-        const element = document.getElementById(hash);
-        element?.scrollIntoView({ behavior: 'smooth' });
-      }
-      return;
-    }
-
-    // Resolve the path
-    let resolvedPath = resolveImagePath(pathPart, currentFile.path);
-    
-    // If doesn't end with .md, try adding it
-    if (!resolvedPath.endsWith('.md')) {
-      resolvedPath = `${resolvedPath}.md`;
-    }
-
-    // Try to open the file
-    openFile(resolvedPath).catch((error) => {
-      console.error('Failed to navigate to:', resolvedPath, error);
-    });
+      )
+      // Pattern 2: External URLs (http, https, mailto)
+      .with(
+        { href: P.string.startsWith('http://') },
+        { href: P.string.startsWith('https://') },
+        { href: P.string.startsWith('mailto:') },
+        () => {
+          console.log('[MarkdownLink] External link - opening normally');
+          return false; // Let browser handle it
+        }
+      )
+      // Pattern 3: Anchor-only link (e.g., #heading)
+      .when(
+        () => {
+          const [pathPart, hash] = href.split('#');
+          return !pathPart && hash;
+        },
+        () => {
+          e.preventDefault();
+          const hash = href.split('#')[1];
+          const element = document.getElementById(hash);
+          element?.scrollIntoView({ behavior: 'smooth' });
+          console.log('[MarkdownLink] Anchor link - scrolling to:', hash);
+          return true;
+        }
+      )
+      // Pattern 4: Internal wiki link (relative path)
+      .otherwise(() => {
+        e.preventDefault();
+        console.log('[MarkdownLink] Internal link - resolving path');
+        
+        const [pathPart] = href.split('#');
+        let resolvedPath = resolveImagePath(pathPart, currentFile.path);
+        
+        if (!resolvedPath.endsWith('.md')) {
+          resolvedPath = `${resolvedPath}.md`;
+        }
+        
+        openFile(resolvedPath).catch((error) => {
+          console.error('Failed to navigate to:', resolvedPath, error);
+        });
+        
+        return true;
+      });
   }, [href, currentFile, openFile, allFiles, wikiName]);
 
   const isExternal = href?.startsWith('http://') || href?.startsWith('https://');
@@ -250,17 +257,38 @@ function MarkdownLink({ href, children, ...props }: React.AnchorHTMLAttributes<H
 }
 
 /**
- * Preprocesses markdown content to fix common formatting issues.
- * Fixes headers without spaces (e.g., ##Header -> ## Header)
+ * Preprocesses markdown content to fix common formatting issues and enhance Azure DevOps integration.
+ * - Fixes headers without spaces (e.g., ##Header -> ## Header)
+ * - Converts Azure DevOps work item references (#12345) to clickable links
  * 
  * @param content - Raw markdown content
+ * @param azureDevOpsBaseUrl - Base URL for Azure DevOps (e.g., "https://org.visualstudio.com/Project")
  * @returns Preprocessed markdown content
  */
-function preprocessMarkdown(content: string): string {
+function preprocessMarkdown(content: string, azureDevOpsBaseUrl?: string): string {
+  let processed = content;
+  
   // Fix headers without space after # symbols
   // Matches: ##Header or ###Header etc. (but not URLs like http://)
   // Replaces with: ## Header or ### Header
-  return content.replace(/^(#{1,6})([^\s#])/gm, '$1 $2');
+  processed = processed.replace(/^(#{1,6})([^\s#])/gm, '$1 $2');
+  
+  // Convert Azure DevOps work item references to links
+  // Matches: #12345 (but not in code blocks, URLs, or at start of line which would be headers)
+  if (azureDevOpsBaseUrl) {
+    // Pattern explanation:
+    // (?<!^) - Not at start of line (negative lookbehind to avoid headers)
+    // (?<!`) - Not preceded by backtick (avoid inline code)
+    // (?<!\[) - Not preceded by [ (avoid existing markdown links)
+    // #(\d{4,}) - # followed by 4+ digits (work item ID)
+    // (?!`) - Not followed by backtick (avoid inline code)
+    processed = processed.replace(
+      /(?<!^)(?<!`)(?<!\[)#(\d{4,})(?!`)/gm,
+      `[#$1](${azureDevOpsBaseUrl}/_workitems/edit/$1)`
+    );
+  }
+  
+  return processed;
 }
 
 /**
@@ -312,8 +340,15 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   content, 
   className 
 }: MarkdownRendererProps) {
-  // Preprocess content to fix common markdown issues
-  const processedContent = preprocessMarkdown(content);
+  const { azureDevOpsContext } = useFileSystem();
+  
+  // Build Azure DevOps base URL for work items
+  const azureDevOpsBaseUrl = azureDevOpsContext 
+    ? `${azureDevOpsContext.baseUrl}/${encodeURIComponent(azureDevOpsContext.project)}`
+    : undefined;
+  
+  // Preprocess content to fix common markdown issues and add Azure DevOps links
+  const processedContent = preprocessMarkdown(content, azureDevOpsBaseUrl);
   
   return (
     <div className={cn('prose prose-slate dark:prose-invert max-w-none', className)}>
