@@ -114,9 +114,34 @@ export default function Button(props: any) {
 - **Prefix custom hooks** with `use`
 - **Memoize expensive computations** with `useMemo`
 - **Memoize callbacks** with `useCallback` when passing to child components
+- **Avoid useEffect where possible** - prefer direct state updates in event handlers
 
 ```typescript
-// ✅ Good
+// ✅ Good - Direct state update in handler
+function SearchBar({ onSearch }: Props) {
+  const [query, setQuery] = useState('');
+  
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const newQuery = e.target.value;
+    setQuery(newQuery);
+    onSearch(newQuery); // Direct call, no useEffect needed
+  };
+
+  return <input value={query} onChange={handleChange} />;
+}
+
+// ❌ Bad - Unnecessary useEffect
+function SearchBar({ onSearch }: Props) {
+  const [query, setQuery] = useState('');
+  
+  useEffect(() => {
+    onSearch(query); // Adds complexity and potential bugs
+  }, [query, onSearch]);
+
+  return <input value={query} onChange={(e) => setQuery(e.target.value)} />;
+}
+
+// ✅ Good - useEffect for external sync (when necessary)
 function useFileContent(path: string) {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

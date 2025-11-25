@@ -2,8 +2,10 @@
 
 import { useFileSystem } from '@/contexts/FileSystemContext';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
+import { FileTree } from '@/components/file-tree';
 import { FolderOpen, FileText } from 'lucide-react';
-import type { DirectoryNode } from '@/types';
+import { useUrlState } from '@/hooks/use-url-state';
+import { useEffect } from 'react';
 
 /**
  * Main application page for the Instant Wiki Reader.
@@ -11,6 +13,36 @@ import type { DirectoryNode } from '@/types';
  */
 export default function Home() {
   const ctx = useFileSystem();
+  const { updateUrl, getFileFromUrl, getExpandedFromUrl } = useUrlState();
+
+  // Set up URL update callback
+  useEffect(() => {
+    ctx.setUrlUpdateCallback((file, expanded) => {
+      updateUrl({ file, expanded });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
+
+  // Restore state from URL on mount
+  useEffect(() => {
+    if (!ctx.directoryTree) return;
+
+    const filePath = getFileFromUrl();
+    const expandedDirs = getExpandedFromUrl();
+
+    // Restore expanded directories
+    if (expandedDirs.size > 0) {
+      ctx.setExpandedDirs(expandedDirs);
+    }
+
+    // Restore opened file
+    if (filePath && ctx.currentFile?.path !== filePath) {
+      ctx.openFile(filePath).catch((error) => {
+        console.error('Failed to open file from URL:', error);
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.directoryTree]); // Only run when tree is loaded
 
   const handleSelectDirectory = async () => {
     try {
@@ -19,6 +51,20 @@ export default function Home() {
       console.error('Failed to select directory:', error);
     }
   };
+
+  // Show loading spinner during initialization or scanning
+  if (ctx.isInitializing || ctx.isScanning) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-600 dark:text-slate-400">
+            {ctx.isInitializing ? 'Initializing...' : 'Loading directory...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // No directory selected - show welcome screen
   if (!ctx.rootHandle) {
@@ -50,30 +96,15 @@ export default function Home() {
     );
   }
 
-  // Loading state
-  if (ctx.isScanning) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-600 dark:text-slate-400">Loading directory...</p>
-        </div>
-      </div>
-    );
-  }
-
   // Main application view - directory loaded
-  const fileCount = ctx.directoryTree?.children?.length ?? 0;
-  const files = ctx.directoryTree?.children ?? [];
-
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900">
       {/* Sidebar - File tree */}
-      <aside className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 overflow-y-auto">
-        <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+      <aside className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col">
+        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-              Files
+              Directory
             </h2>
             <button
               onClick={handleSelectDirectory}
@@ -82,33 +113,10 @@ export default function Home() {
               Change
             </button>
           </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {fileCount} file{fileCount !== 1 ? 's' : ''}
-          </p>
         </div>
         
-        <div className="p-4">
-          <div className="flex flex-col gap-1">
-            {files.map((file: DirectoryNode) => (
-              <button
-                key={file.path}
-                onClick={() => ctx.openFile(file.path)}
-                className={`flex items-center gap-2 px-3 py-2 rounded text-left transition-colors ${
-                  ctx.currentFile?.path === file.path
-                    ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-                }`}
-              >
-                <FileText className="w-4 h-4 flex-shrink-0" />
-                <span className="text-sm truncate">{file.name}</span>
-              </button>
-            ))}
-            {fileCount === 0 && (
-              <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-8">
-                No markdown files found
-              </p>
-            )}
-          </div>
+        <div className="flex-1 overflow-hidden">
+          <FileTree />
         </div>
       </aside>
 

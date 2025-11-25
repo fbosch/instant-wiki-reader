@@ -21,7 +21,7 @@ export interface FileMeta {
 export interface FileContent {
   path: string;
   content: string;
-  parsedMarkdown?: any; // Will hold parsed AST from remark
+  parsedMarkdown?: unknown; // Will hold parsed AST from remark
 }
 
 export interface SearchIndexEntry {
@@ -43,8 +43,10 @@ export interface FileSystemState {
   handleCache: Map<string, FileSystemHandle>;
   permissionState: PermissionState;
   isScanning: boolean;
+  isInitializing: boolean;
   lastRefresh: number | null;
   searchIndex: SearchIndexEntry[];
+  expandedDirs: Set<string>;
 }
 
 export interface FileSystemActions {
@@ -54,6 +56,8 @@ export interface FileSystemActions {
   search: (query: string, mode?: 'filename' | 'fulltext') => SearchIndexEntry[];
   refresh: () => Promise<void>;
   clearDirectory: () => void;
+  setExpandedDirs: (dirs: Set<string>) => void;
+  setUrlUpdateCallback: (callback: (file: string | null, expanded: Set<string>) => void) => void;
 }
 
 export type SearchMode = 'filename' | 'fulltext';

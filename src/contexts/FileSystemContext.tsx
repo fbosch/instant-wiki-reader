@@ -43,8 +43,10 @@ const initialState: FileSystemState = {
   handleCache: new Map(),
   permissionState: 'unknown',
   isScanning: false,
+  isInitializing: true,
   lastRefresh: null,
   searchIndex: [],
+  expandedDirs: new Set(),
 };
 
 // Action types
@@ -56,8 +58,10 @@ type Action =
   | { type: 'UPDATE_FILE_CACHE'; payload: { path: string; content: FileContent } }
   | { type: 'SET_PERMISSION_STATE'; payload: FileSystemState['permissionState'] }
   | { type: 'SET_IS_SCANNING'; payload: boolean }
+  | { type: 'SET_IS_INITIALIZING'; payload: boolean }
   | { type: 'SET_LAST_REFRESH'; payload: number }
   | { type: 'SET_SEARCH_INDEX'; payload: SearchIndexEntry[] }
+  | { type: 'SET_EXPANDED_DIRS'; payload: Set<string> }
   | { type: 'CLEAR_ALL' };
 
 // Reducer
@@ -87,11 +91,17 @@ function fileSystemReducer(state: FileSystemState, action: Action): FileSystemSt
     case 'SET_IS_SCANNING':
       return { ...state, isScanning: action.payload };
     
+    case 'SET_IS_INITIALIZING':
+      return { ...state, isInitializing: action.payload };
+    
     case 'SET_LAST_REFRESH':
       return { ...state, lastRefresh: action.payload };
     
     case 'SET_SEARCH_INDEX':
       return { ...state, searchIndex: action.payload };
+    
+    case 'SET_EXPANDED_DIRS':
+      return { ...state, expandedDirs: action.payload };
     
     case 'CLEAR_ALL':
       return { ...initialState };
@@ -110,17 +120,30 @@ const FileSystemContext = createContext<
 export function FileSystemProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(fileSystemReducer, initialState);
   const [allFiles, setAllFiles] = useState<File[]>([]);
+  const [urlUpdateCallback, setUrlUpdateCallback] = useState<
+    ((file: string | null, expanded: Set<string>) => void) | null
+  >(null);
 
   // Check for saved directory on mount
   useEffect(() => {
     async function checkSavedDirectory() {
       if (!isFileSystemAccessSupported()) {
         dispatch({ type: 'SET_PERMISSION_STATE', payload: 'denied' });
+        dispatch({ type: 'SET_IS_INITIALIZING', payload: false });
         return;
       }
 
+      // Add a small delay to avoid showing welcome screen flash
+      const startTime = Date.now();
       const savedHandle = await getSavedDirectoryHandle();
+      
       if (!savedHandle) {
+        // Only show welcome screen if initialization took more than 100ms
+        const elapsed = Date.now() - startTime;
+        if (elapsed < 100) {
+          await new Promise(resolve => setTimeout(resolve, 100 - elapsed));
+        }
+        dispatch({ type: 'SET_IS_INITIALIZING', payload: false });
         return;
       }
 
@@ -140,6 +163,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         console.error(ERROR_MESSAGES.LOAD_FAILED, error);
       } finally {
         dispatch({ type: 'SET_IS_SCANNING', payload: false });
+        dispatch({ type: 'SET_IS_INITIALIZING', payload: false });
       }
     }
 
@@ -210,6 +234,8 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         const cached = state.fileCache.get(path);
         if (cached) {
           dispatch({ type: 'SET_CURRENT_FILE', payload: cached });
+          // Notify URL update callback
+          urlUpdateCallback?.(path, state.expandedDirs);
           return;
         }
 
@@ -229,12 +255,15 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         // Update cache and state
         dispatch({ type: 'UPDATE_FILE_CACHE', payload: { path, content: fileContent } });
         dispatch({ type: 'SET_CURRENT_FILE', payload: fileContent });
+        
+        // Notify URL update callback
+        urlUpdateCallback?.(path, state.expandedDirs);
       } catch (error) {
         console.error(ERROR_MESSAGES.OPEN_FAILED, error);
         throw error;
       }
     },
-    [allFiles, state.fileCache]
+    [allFiles, state.fileCache, state.expandedDirs, urlUpdateCallback]
   );
 
   // Search (placeholder for now)
@@ -293,6 +322,18 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     setAllFiles([]);
   }, []);
 
+  // Set expanded directories
+  const setExpandedDirs = useCallback((dirs: Set<string>) => {
+    dispatch({ type: 'SET_EXPANDED_DIRS', payload: dirs });
+    // Notify URL update callback
+    urlUpdateCallback?.(state.currentFile?.path || null, dirs);
+  }, [state.currentFile, urlUpdateCallback]);
+
+  // Set URL update callback
+  const setUrlUpdateCallbackFn = useCallback((callback: (file: string | null, expanded: Set<string>) => void) => {
+    setUrlUpdateCallback(() => callback);
+  }, []);
+
   const value = {
     ...state,
     selectDirectory,
@@ -301,6 +342,8 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     search,
     refresh,
     clearDirectory,
+    setExpandedDirs,
+    setUrlUpdateCallback: setUrlUpdateCallbackFn,
   };
 
   return (
