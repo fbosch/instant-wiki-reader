@@ -267,15 +267,40 @@ export function filterMarkdownFiles(files: File[]): File[] {
 
 /**
  * Get file by path from a list of files.
+ * Handles both URL-encoded and decoded path formats.
  * 
  * @param files - Array of files to search
- * @param path - Path to match against webkitRelativePath or name
+ * @param path - Path to match against webkitRelativePath or name (can be URL-encoded or decoded)
  * @returns File if found, undefined otherwise
  */
 export function getFileByPath(files: File[], path: string): File | undefined {
+  // Try to decode the path in case it's URL-encoded
+  let decodedPath = path;
+  try {
+    decodedPath = decodeURIComponent(path);
+  } catch (e) {
+    // If decoding fails, use original path
+    decodedPath = path;
+  }
+  
   return files.find((file) => {
     const filePath = file.webkitRelativePath || file.name;
-    return filePath === path;
+    
+    // Try exact match first
+    if (filePath === path) return true;
+    
+    // Try with decoded path
+    if (filePath === decodedPath) return true;
+    
+    // Try decoding the file path as well (in case it's URL-encoded)
+    try {
+      const decodedFilePath = decodeURIComponent(filePath);
+      if (decodedFilePath === path || decodedFilePath === decodedPath) return true;
+    } catch (e) {
+      // Ignore decoding errors
+    }
+    
+    return false;
   });
 }
 

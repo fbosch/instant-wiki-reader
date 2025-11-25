@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm';
 import remarkWikiLink from 'remark-wiki-link';
 import rehypeRaw from 'rehype-raw';
 import rehypeHighlight from 'rehype-highlight';
-import { cn, extractAzureDevOpsPath, isMatchingWikiLink } from '@/lib/utils';
+import { cn, extractAzureDevOpsPath, findFileFlexible } from '@/lib/utils';
 import { useFileSystem } from '@/contexts/FileSystemContext';
 
 interface MarkdownRendererProps {
@@ -51,35 +51,7 @@ function resolveImagePath(imageSrc: string, currentFilePath: string): string {
   }
 }
 
-/**
- * Resolves a link path to find the target file in the wiki
- */
-function resolveLinkPath(linkHref: string, currentFilePath: string, allFiles: File[]): string | null {
-  // If external URL, return null (let it open normally)
-  if (linkHref.startsWith('http://') || linkHref.startsWith('https://') || linkHref.startsWith('mailto:')) {
-    return null;
-  }
 
-  // Remove any hash/anchor from the link
-  const [pathPart] = linkHref.split('#');
-  if (!pathPart) return null;
-
-  // Resolve relative path using same logic as images
-  let resolvedPath = resolveImagePath(pathPart, currentFilePath);
-  
-  // If doesn't end with .md, try adding it
-  if (!resolvedPath.endsWith('.md')) {
-    resolvedPath = `${resolvedPath}.md`;
-  }
-
-  // Check if file exists
-  const fileExists = allFiles.some((file) => {
-    const filePath = file.webkitRelativePath || file.name;
-    return filePath === resolvedPath;
-  });
-
-  return fileExists ? resolvedPath : null;
-}
 
 // Cache for blob URLs to avoid recreating them
 const blobCache = new Map<string, string>();
@@ -204,24 +176,23 @@ function MarkdownLink({ href, children, ...props }: React.AnchorHTMLAttributes<H
       if (azureDevOpsInfo.wikiName === wikiName) {
         console.log('[MarkdownLink] Wiki name matches! Looking for file:', azureDevOpsInfo.filePath);
         
-        // Check if we have this file locally
-        const localFile = allFiles.find((file) => {
-          const filePath = file.webkitRelativePath || file.name;
-          return filePath === azureDevOpsInfo.filePath;
-        });
-
-        console.log('[MarkdownLink] Local file found:', !!localFile);
+        // Use flexible matching to handle Azure DevOps wiki naming variations
+        const localFile = findFileFlexible(allFiles, azureDevOpsInfo.filePath);
 
         if (localFile) {
           // We have this file locally - navigate internally
           e.preventDefault();
-          console.log('[MarkdownLink] Navigating to local file:', azureDevOpsInfo.filePath);
-          openFile(azureDevOpsInfo.filePath).catch((error) => {
-            console.error('Failed to navigate to Azure DevOps linked file:', azureDevOpsInfo.filePath, error);
+          const localFilePath = localFile.webkitRelativePath || localFile.name;
+          console.log('[MarkdownLink] Matched file:', localFilePath);
+          console.log('[MarkdownLink] Navigating to local file');
+          openFile(localFilePath).catch((error) => {
+            console.error('Failed to navigate to Azure DevOps linked file:', localFilePath, error);
           });
           return;
         } else {
-          console.log('[MarkdownLink] File not found locally, will open external link');
+          console.log('[MarkdownLink] File not found locally after trying all matching strategies');
+          console.log('[MarkdownLink] Searched for variations of:', azureDevOpsInfo.filePath);
+          console.log('[MarkdownLink] Will open external link');
         }
       } else {
         console.log('[MarkdownLink] Wiki name mismatch, will open external link');
