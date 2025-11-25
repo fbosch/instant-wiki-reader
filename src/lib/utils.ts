@@ -11,3 +11,25 @@ import { twMerge } from 'tailwind-merge';
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+/**
+ * Extracts all parent directory paths from a file path.
+ * Used to auto-expand the tree when navigating to a nested file.
+ * 
+ * @param filePath - Full path to the file (e.g., "docs/api/overview.md")
+ * @returns Array of parent directory paths (e.g., ["docs", "docs/api"])
+ */
+export function getParentDirs(filePath: string): string[] {
+  const parts = filePath.split('/');
+  const parents: string[] = [];
+  
+  // Build up parent paths
+  for (let i = 0; i < parts.length - 1; i++) {
+    const path = parts.slice(0, i + 1).join('/');
+    if (path) {
+      parents.push(path);
+    }
+  }
+  
+  return parents;
+}

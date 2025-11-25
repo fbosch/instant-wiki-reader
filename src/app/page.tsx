@@ -5,6 +5,7 @@ import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { FileTree } from '@/components/file-tree';
 import { FolderOpen, FileText } from 'lucide-react';
 import { useUrlState } from '@/hooks/use-url-state';
+import { getParentDirs } from '@/lib/utils';
 import { useEffect } from 'react';
 
 /**
@@ -30,16 +31,24 @@ export default function Home() {
     const filePath = getFileFromUrl();
     const expandedDirs = getExpandedFromUrl();
 
-    // Restore expanded directories
-    if (expandedDirs.size > 0) {
-      ctx.setExpandedDirs(expandedDirs);
-    }
+    // If there's a file path in URL, auto-expand parent directories
+    if (filePath) {
+      const parentDirs = getParentDirs(filePath);
+      const dirsToExpand = new Set([...expandedDirs, ...parentDirs]);
+      
+      if (dirsToExpand.size > 0) {
+        ctx.setExpandedDirs(dirsToExpand);
+      }
 
-    // Restore opened file
-    if (filePath && ctx.currentFile?.path !== filePath) {
-      ctx.openFile(filePath).catch((error) => {
-        console.error('Failed to open file from URL:', error);
-      });
+      // Open the file
+      if (ctx.currentFile?.path !== filePath) {
+        ctx.openFile(filePath).catch((error) => {
+          console.error('Failed to open file from URL:', error);
+        });
+      }
+    } else if (expandedDirs.size > 0) {
+      // Only restore expanded directories if no file path
+      ctx.setExpandedDirs(expandedDirs);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.directoryTree]); // Only run when tree is loaded
@@ -98,9 +107,9 @@ export default function Home() {
 
   // Main application view - directory loaded
   return (
-    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900">
+    <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
       {/* Sidebar - File tree */}
-      <aside className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col">
+      <aside className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col h-full">
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
@@ -115,13 +124,13 @@ export default function Home() {
           </div>
         </div>
         
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-y-auto">
           <FileTree />
         </div>
       </aside>
 
       {/* Main content area */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto h-full">
         {ctx.currentFile ? (
           <div className="max-w-4xl mx-auto p-8">
             <div className="mb-6">

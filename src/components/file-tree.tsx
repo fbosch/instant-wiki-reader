@@ -27,13 +27,14 @@ function FileTreeItem({
   expandedKeys,
   onToggleExpand
 }: FileTreeItemProps) {
-  const { openFile } = useFileSystem();
+  const { openFile, currentFile } = useFileSystem();
   const ref = React.useRef<HTMLDivElement>(null);
   const { focusProps } = useFocusRing();
 
   const isSelected = tree.selectedKeys?.has(node.key) ?? false;
   const isExpanded = expandedKeys.has(node.key);
   const hasChildren = node.children && node.children.length > 0;
+  const isCurrentFile = currentFile?.path === item.path;
 
   const handleClick = () => {
     if (item.type === 'file') {
@@ -44,35 +45,40 @@ function FileTreeItem({
     }
   };
 
-  const icon = item.type === 'file' ? (
-    <File className="w-4 h-4 text-slate-500" />
-  ) : isExpanded ? (
-    <FolderOpen className="w-4 h-4 text-blue-500" />
-  ) : (
-    <Folder className="w-4 h-4 text-blue-500" />
-  );
-
   return (
     <li>
       <div
         {...mergeProps(focusProps)}
         ref={ref}
-        className={`flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors ${
-          isSelected ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-300'
+        className={`flex items-center gap-2 px-2 py-1 cursor-pointer rounded transition-colors relative ${
+          isCurrentFile
+            ? 'bg-blue-600 text-white hover:bg-blue-700' 
+            : isSelected 
+            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/40' 
+            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
         }`}
         style={{ paddingLeft: 8 + level * 16 }}
         onClick={handleClick}
       >
+        {isCurrentFile && (
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-600" />
+        )}
         {hasChildren && (
           <ChevronRight 
-            className={`w-4 h-4 text-slate-500 transition-transform ${
+            className={`w-4 h-4 flex-shrink-0 transition-transform ${
               isExpanded ? 'rotate-90' : ''
-            }`}
+            } ${isCurrentFile ? 'text-white' : 'text-slate-500'}`}
           />
         )}
-        {!hasChildren && <div className="w-4" />}
-        {icon}
-        <span className="text-sm truncate">{item.name}</span>
+        {!hasChildren && <div className="w-4 flex-shrink-0" />}
+        {item.type === 'file' ? (
+          <File className={`w-4 h-4 flex-shrink-0 ${isCurrentFile ? 'text-white' : 'text-slate-500'}`} />
+        ) : isExpanded ? (
+          <FolderOpen className={`w-4 h-4 flex-shrink-0 ${isCurrentFile ? 'text-white' : 'text-blue-500'}`} />
+        ) : (
+          <Folder className={`w-4 h-4 flex-shrink-0 ${isCurrentFile ? 'text-white' : 'text-blue-500'}`} />
+        )}
+        <span className="text-sm truncate font-medium">{item.name}</span>
       </div>
       {hasChildren && isExpanded && (
         <ul>
@@ -129,7 +135,7 @@ export function FileTree() {
   }
 
   return (
-    <div className="h-full overflow-auto">
+    <div className="h-full">
       <ul className="p-2">
         {tree.items.map((node) => (
           <FileTreeItem 
