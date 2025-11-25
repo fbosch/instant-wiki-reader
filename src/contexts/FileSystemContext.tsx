@@ -21,6 +21,7 @@ import {
   isFileSystemAccessSupported,
 } from '@/lib/file-system';
 import { pickDirectory, verifyPermission, readDirectory } from '@/lib/fs-access';
+import { useWorkers } from '@/hooks/use-workers';
 
 // Error messages
 const ERROR_MESSAGES = {
@@ -123,6 +124,42 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   const [urlUpdateCallback, setUrlUpdateCallback] = useState<
     ((file: string | null, expanded: Set<string>) => void) | null
   >(null);
+  
+  // Initialize workers
+  const { treeWorker, searchWorker } = useWorkers();
+
+  // Helper function to build tree using worker (with fallback)
+  const buildTreeWithWorker = useCallback(async (files: File[]): Promise<DirectoryNode> => {
+    console.log('[FileSystemContext] Building tree for', files.length, 'files');
+    
+    // Convert File objects to serializable format
+    const serializableFiles = files.map((file) => ({
+      name: file.name,
+      path: file.webkitRelativePath || file.name,
+      size: file.size,
+      lastModified: file.lastModified,
+    }));
+    
+    console.log('[FileSystemContext] Serialized files:', serializableFiles.length);
+    
+    // Try to use worker if available, otherwise use main thread
+    if (treeWorker) {
+      try {
+        console.log('[FileSystemContext] Using tree worker');
+        const tree = await treeWorker.buildDirectoryTree(serializableFiles);
+        console.log('[FileSystemContext] Worker returned tree:', tree);
+        return tree;
+      } catch (error) {
+        console.warn('Worker failed, falling back to main thread:', error);
+      }
+    }
+    
+    // Fallback: build on main thread
+    console.log('[FileSystemContext] Using main thread fallback');
+    const tree = buildDirectoryTree(files);
+    console.log('[FileSystemContext] Main thread returned tree:', tree);
+    return tree;
+  }, [treeWorker]);
 
   // Check for saved directory on mount
   useEffect(() => {
@@ -156,7 +193,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         const files = await readDirectory(savedHandle);
         setAllFiles(files);
         
-        const tree = buildDirectoryTree(files);
+        const tree = await buildTreeWithWorker(files);
         dispatch({ type: 'SET_DIRECTORY_TREE', payload: tree });
         dispatch({ type: 'SET_LAST_REFRESH', payload: Date.now() });
       } catch (error) {
@@ -168,7 +205,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     }
 
     checkSavedDirectory();
-  }, []);
+  }, [buildTreeWithWorker]);
 
   // Select a directory
   const selectDirectory = useCallback(async () => {
@@ -207,8 +244,8 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
 
       setAllFiles(files);
       
-      // Build directory tree
-      const tree = buildDirectoryTree(files);
+      // Build directory tree in worker
+      const tree = await buildTreeWithWorker(files);
       dispatch({ type: 'SET_DIRECTORY_TREE', payload: tree });
       dispatch({ type: 'SET_LAST_REFRESH', payload: Date.now() });
     } catch (error) {
@@ -217,7 +254,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     } finally {
       dispatch({ type: 'SET_IS_SCANNING', payload: false });
     }
-  }, []);
+  }, [buildTreeWithWorker]);
 
   // Load children of a directory node (for lazy loading)
   const loadNodeChildren = useCallback(async (node: DirectoryNode) => {
@@ -266,12 +303,13 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     [allFiles, state.fileCache, state.expandedDirs, urlUpdateCallback]
   );
 
-  // Search (placeholder for now)
+  // Search (currently simple sync search, can be enhanced with searchWorker for full-text)
   const search = useCallback(
     (query: string, _mode: SearchMode = 'filename'): SearchIndexEntry[] => {
       if (!query.trim()) return [];
 
       // Simple filename search for now
+      // TODO: Use searchWorker.searchIndex() for full-text search with better performance
       const lowerQuery = query.toLowerCase();
       const mdFiles = filterMarkdownFiles(allFiles);
 
@@ -304,7 +342,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
       const files = await readDirectory(state.rootHandle);
       setAllFiles(files);
 
-      const tree = buildDirectoryTree(files);
+      const tree = await buildTreeWithWorker(files);
       dispatch({ type: 'SET_DIRECTORY_TREE', payload: tree });
       dispatch({ type: 'SET_LAST_REFRESH', payload: Date.now() });
     } catch (error) {
@@ -313,7 +351,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     } finally {
       dispatch({ type: 'SET_IS_SCANNING', payload: false });
     }
-  }, [state.rootHandle]);
+  }, [state.rootHandle, buildTreeWithWorker]);
 
   // Clear directory
   const clearDirectory = useCallback(async () => {

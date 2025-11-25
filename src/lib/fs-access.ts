@@ -94,7 +94,8 @@ export async function readDirectory(
   path: string = ''
 ): Promise<File[]> {
   const files: File[] = [];
-  const ignoredNames = new Set(['.', 'node_modules', '.git', '.obsidian']);
+  const ignoredNames = new Set(['node_modules', '.git', '.obsidian']);
+  const allowedHiddenDirs = new Set(['.attachments']); // Allow .attachments for images
 
   async function traverse(
     dirHandle: FileSystemDirectoryHandle,
@@ -106,8 +107,11 @@ export async function readDirectory(
     for await (const entry of entries) {
       const entryPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
 
-      // Skip hidden files and common ignore patterns
-      if (entry.name.startsWith('.') || ignoredNames.has(entry.name)) {
+      // Skip hidden files/dirs except allowed ones, and skip common ignore patterns
+      const isHidden = entry.name.startsWith('.');
+      const isAllowed = allowedHiddenDirs.has(entry.name);
+      
+      if ((isHidden && !isAllowed) || ignoredNames.has(entry.name)) {
         continue;
       }
 

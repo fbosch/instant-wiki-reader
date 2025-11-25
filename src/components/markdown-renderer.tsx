@@ -91,14 +91,16 @@ function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImage
         const pathParts = resolvedPath.split('/');
         let currentHandle: FileSystemDirectoryHandle = rootHandle;
 
-        // Navigate through directories
+        // Navigate through directories (decode each part for file system access)
         for (let i = 0; i < pathParts.length - 1; i++) {
-          currentHandle = await currentHandle.getDirectoryHandle(pathParts[i]);
+          const decodedPart = decodeURIComponent(pathParts[i]);
+          currentHandle = await currentHandle.getDirectoryHandle(decodedPart);
         }
 
-        // Get the file
+        // Get the file (decode the filename)
         const fileName = pathParts[pathParts.length - 1];
-        const fileHandle = await currentHandle.getFileHandle(fileName);
+        const decodedFileName = decodeURIComponent(fileName);
+        const fileHandle = await currentHandle.getFileHandle(decodedFileName);
         const file = await fileHandle.getFile();
 
         if (!cancelled) {
@@ -107,7 +109,7 @@ function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImage
           setBlobUrl(url);
         }
       } catch (err) {
-        console.error('Failed to load image:', srcString, err);
+        console.error('Failed to load image:', srcString, 'resolved to:', resolvedPath, err);
         if (!cancelled) {
           setError(true);
         }

@@ -31,10 +31,13 @@ export async function openDirectory(): Promise<{
     const files = await directoryOpen({
       recursive: true,
       skipDirectory: (entry) => {
-        // Skip hidden directories and common ignore patterns
+        // Skip hidden directories except .attachments, and skip common ignore patterns
         const { name } = entry;
+        const isHidden = name.startsWith('.');
+        const isAllowedHidden = name === '.attachments';
+        
         return (
-          name.startsWith('.') ||
+          (isHidden && !isAllowedHidden) ||
           name === 'node_modules' ||
           name === '.git' ||
           name === '.obsidian'
