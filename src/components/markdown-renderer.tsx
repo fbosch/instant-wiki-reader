@@ -1,12 +1,148 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
+import { useFileSystem } from '@/contexts/FileSystemContext';
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+}
+
+/**
+ * Resolves a relative image path to an absolute path within the wiki
+ */
+function resolveImagePath(imageSrc: string, currentFilePath: string): string {
+  // If absolute URL, return as-is
+  if (imageSrc.startsWith('http://') || imageSrc.startsWith('https://') || imageSrc.startsWith('data:')) {
+    return imageSrc;
+  }
+
+  const currentDir = currentFilePath.split('/').slice(0, -1).join('/');
+
+  // Handle different relative path formats
+  if (imageSrc.startsWith('./')) {
+    return currentDir ? `${currentDir}/${imageSrc.slice(2)}` : imageSrc.slice(2);
+  } else if (imageSrc.startsWith('../')) {
+    const parts = currentDir.split('/');
+    const srcParts = imageSrc.split('/');
+    let upCount = 0;
+    
+    // Count how many levels to go up
+    while (srcParts[upCount] === '..') {
+      upCount++;
+    }
+    
+    // Remove directories and join with remaining path
+    const newParts = parts.slice(0, Math.max(0, parts.length - upCount));
+    const remaining = srcParts.slice(upCount);
+    return [...newParts, ...remaining].filter(Boolean).join('/');
+  } else if (imageSrc.startsWith('/')) {
+    // Absolute path from wiki root
+    return imageSrc.slice(1);
+  } else {
+    // Relative to current directory
+    return currentDir ? `${currentDir}/${imageSrc}` : imageSrc;
+  }
+}
+
+// Cache for blob URLs to avoid recreating them
+const blobCache = new Map<string, string>();
+
+/**
+ * Image component that loads images from the file system on-demand
+ */
+function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+  const { currentFile, rootHandle } = useFileSystem();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  const srcString = typeof src === 'string' ? src : '';
+
+  useEffect(() => {
+    if (!srcString || !currentFile || !rootHandle) {
+      return;
+    }
+
+    // If external URL, no need to process
+    if (srcString.startsWith('http://') || srcString.startsWith('https://') || srcString.startsWith('data:')) {
+      setBlobUrl(srcString);
+      return;
+    }
+
+    const resolvedPath = resolveImagePath(srcString, currentFile.path);
+    
+    // Check cache first
+    if (blobCache.has(resolvedPath)) {
+      setBlobUrl(blobCache.get(resolvedPath)!);
+      return;
+    }
+
+    // Load image from file system
+    let cancelled = false;
+
+    async function loadImage() {
+      if (!rootHandle) return;
+      
+      try {
+        const pathParts = resolvedPath.split('/');
+        let currentHandle: FileSystemDirectoryHandle = rootHandle;
+
+        // Navigate through directories
+        for (let i = 0; i < pathParts.length - 1; i++) {
+          currentHandle = await currentHandle.getDirectoryHandle(pathParts[i]);
+        }
+
+        // Get the file
+        const fileName = pathParts[pathParts.length - 1];
+        const fileHandle = await currentHandle.getFileHandle(fileName);
+        const file = await fileHandle.getFile();
+
+        if (!cancelled) {
+          const url = URL.createObjectURL(file);
+          blobCache.set(resolvedPath, url);
+          setBlobUrl(url);
+        }
+      } catch (err) {
+        console.error('Failed to load image:', srcString, err);
+        if (!cancelled) {
+          setError(true);
+        }
+      }
+    }
+
+    loadImage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [srcString, currentFile, rootHandle]);
+
+  if (error) {
+    return (
+      <div className="my-4 p-4 border border-red-300 dark:border-red-700 rounded bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-sm">
+        Failed to load image: {srcString}
+      </div>
+    );
+  }
+
+  if (!blobUrl) {
+    return (
+      <div className="my-4 h-32 bg-slate-100 dark:bg-slate-800 rounded animate-pulse flex items-center justify-center text-slate-400">
+        Loading image...
+      </div>
+    );
+  }
+
+  return (
+    <img 
+      src={blobUrl} 
+      alt={alt} 
+      className="max-w-full h-auto rounded-lg shadow-sm my-4"
+      {...props}
+    />
+  );
 }
 
 /**
@@ -125,6 +261,8 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
               {children}
             </td>
           ),
+          // Images - load from file system on-demand
+          img: MarkdownImage,
         }}
       >
         {content}
