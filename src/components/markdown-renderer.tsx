@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useEffect, useCallback } from 'react';
+import { memo, useState, useEffect, useCallback, createElement } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkWikiLink from 'remark-wiki-link';
@@ -264,6 +264,44 @@ function preprocessMarkdown(content: string): string {
 }
 
 /**
+ * Generates an ID from heading text for anchor linking.
+ * Converts to lowercase, replaces special chars and spaces with hyphens.
+ * 
+ * @param text - Heading text
+ * @returns URL-safe ID
+ */
+function generateHeadingId(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/**
+ * Creates a heading component with automatic ID generation for table of contents.
+ * 
+ * @param level - Heading level (1-6)
+ * @param className - Tailwind CSS classes for styling
+ * @returns Heading component
+ */
+function createHeadingComponent(level: 1 | 2 | 3 | 4 | 5 | 6, className: string) {
+  return function Heading({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+    const text = String(children);
+    const id = generateHeadingId(text);
+    
+    const Component = `h${level}` as const;
+    
+    return createElement(
+      Component,
+      { id, className, ...props },
+      children
+    );
+  };
+}
+
+/**
  * Renders markdown content with proper styling.
  * Uses react-markdown for parsing and rendering.
  * 
@@ -290,27 +328,13 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
         ]}
         rehypePlugins={[rehypeRaw, rehypeHighlight]}
         components={{
-          // Custom heading rendering with anchor links
-          h1: ({ children, ...props }) => (
-            <h1 className="text-4xl font-bold mt-8 mb-4" {...props}>
-              {children}
-            </h1>
-          ),
-          h2: ({ children, ...props }) => (
-            <h2 className="text-3xl font-semibold mt-6 mb-3" {...props}>
-              {children}
-            </h2>
-          ),
-          h3: ({ children, ...props }) => (
-            <h3 className="text-2xl font-semibold mt-4 mb-2" {...props}>
-              {children}
-            </h3>
-          ),
-          h4: ({ children, ...props }) => (
-            <h4 className="text-xl font-semibold mt-3 mb-2" {...props}>
-              {children}
-            </h4>
-          ),
+          // Custom heading rendering with anchor IDs for table of contents
+          h1: createHeadingComponent(1, 'text-4xl font-bold mt-8 mb-4'),
+          h2: createHeadingComponent(2, 'text-3xl font-semibold mt-6 mb-3'),
+          h3: createHeadingComponent(3, 'text-2xl font-semibold mt-4 mb-2'),
+          h4: createHeadingComponent(4, 'text-xl font-semibold mt-3 mb-2'),
+          h5: createHeadingComponent(5, 'text-lg font-semibold mt-2 mb-1'),
+          h6: createHeadingComponent(6, 'text-base font-semibold mt-2 mb-1'),
           // Code blocks - inline code only (rehype-highlight handles block code)
           pre: ({ children, ...props }) => (
             <pre className="!bg-[#0d1117] !p-4 rounded-lg overflow-x-auto my-4" {...props}>

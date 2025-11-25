@@ -74,6 +74,22 @@ export interface TocEntry {
 }
 
 /**
+ * Generates an ID from heading text for anchor linking.
+ * Converts to lowercase, replaces special chars and spaces with hyphens.
+ * 
+ * @param text - Heading text
+ * @returns URL-safe ID
+ */
+export function generateHeadingId(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/**
  * Extracts headings from markdown content to build a table of contents.
  * Handles malformed headers (without space after #) by preprocessing.
  * 
@@ -93,14 +109,7 @@ export function extractTableOfContents(content: string): TocEntry[] {
   while ((match = headerRegex.exec(fixedContent)) !== null) {
     const level = match[1].length;
     const text = match[2].trim();
-    
-    // Generate ID from heading text (lowercase, replace spaces/special chars with hyphens)
-    const id = text
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
+    const id = generateHeadingId(text);
     
     const entry: TocEntry = {
       id,
