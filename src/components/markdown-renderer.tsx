@@ -2,6 +2,8 @@
 
 import { memo, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 import { cn } from '@/lib/utils';
 import { useFileSystem } from '@/contexts/FileSystemContext';
 
@@ -159,6 +161,8 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   return (
     <div className={cn('prose prose-slate dark:prose-invert max-w-none', className)}>
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
         components={{
           // Custom heading rendering with anchor links
           h1: ({ children, ...props }) => (
@@ -181,10 +185,15 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
               {children}
             </h4>
           ),
-          // Code blocks with syntax highlighting placeholder
+          // Code blocks - inline code only (rehype-highlight handles block code)
+          pre: ({ children, ...props }) => (
+            <pre className="!bg-[#0d1117] !p-4 rounded-lg overflow-x-auto my-4" {...props}>
+              {children}
+            </pre>
+          ),
           code: ({ className, children, ...props }) => {
-            const match = /language-(\w+)/.exec(className || '');
-            const isInline = !match;
+            // Only style inline code - block code is handled by rehype-highlight
+            const isInline = !className?.includes('language-');
             
             if (isInline) {
               return (
@@ -196,17 +205,9 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
                 </code>
               );
             }
-            return (
-              <code
-                className={cn(
-                  'block bg-gray-100 dark:bg-gray-800 rounded p-4 overflow-x-auto text-sm font-mono',
-                  className
-                )}
-                {...props}
-              >
-                {children}
-              </code>
-            );
+            
+            // Let rehype-highlight handle block code styling
+            return <code className={className} {...props}>{children}</code>;
           },
           // Links with proper styling
           a: ({ children, href, ...props }) => (

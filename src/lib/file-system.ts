@@ -181,6 +181,32 @@ export function buildDirectoryTree(files: File[]): DirectoryNode {
     }
   }
 
+  // Second pass: detect index files for directories
+  // A directory has an index file if there's a sibling file with the same name + .md
+  function detectIndexFiles(node: DirectoryNode) {
+    if (!node.children) return;
+
+    for (const child of node.children) {
+      if (child.type === 'dir') {
+        // Check if there's a sibling file with same name + .md
+        const indexFileName = `${child.name}.md`;
+        const parentChildren = node.children;
+        const indexFile = parentChildren.find(
+          (sibling) => sibling.type === 'file' && sibling.name === indexFileName
+        );
+        
+        if (indexFile) {
+          child.indexFile = indexFile.path;
+        }
+        
+        // Recursively check children
+        detectIndexFiles(child);
+      }
+    }
+  }
+
+  detectIndexFiles(root);
+
   return root;
 }
 

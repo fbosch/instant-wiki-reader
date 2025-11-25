@@ -33,3 +33,32 @@ export function getParentDirs(filePath: string): string[] {
   
   return parents;
 }
+
+/**
+ * Formats a file name for display by decoding URL encoding and removing extension.
+ * 
+ * @param fileName - Raw file name (e.g., "Projekt%20Dokumentation.md")
+ * @param removeExtension - Whether to remove the file extension (default: false)
+ * @returns Formatted file name (e.g., "Projekt Dokumentation")
+ */
+export function formatFileName(fileName: string, removeExtension = false): string {
+  // Decode URL encoding (handles %20, %2D, etc.)
+  let decoded = decodeURIComponent(fileName);
+  
+  // Remove .md extension if requested
+  if (removeExtension && decoded.endsWith('.md')) {
+    decoded = decoded.slice(0, -3);
+  }
+  
+  return decoded;
+}
+
+/**
+ * Formats a file path for display by decoding URL encoding.
+ * 
+ * @param path - Raw file path
+ * @returns Formatted file path with decoded components
+ */
+export function formatFilePath(path: string): string {
+  return path.split('/').map(part => decodeURIComponent(part)).join('/');
+}

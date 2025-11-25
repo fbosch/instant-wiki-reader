@@ -5,14 +5,14 @@ import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { FileTree } from '@/components/file-tree';
 import { FolderOpen, FileText } from 'lucide-react';
 import { useUrlState } from '@/hooks/use-url-state';
-import { getParentDirs } from '@/lib/utils';
-import { useEffect } from 'react';
+import { getParentDirs, formatFileName, formatFilePath } from '@/lib/utils';
+import { useEffect, Suspense } from 'react';
 
 /**
- * Main application page for the Instant Wiki Reader.
- * Provides directory selection and markdown file viewing.
+ * Main content component that uses URL state.
+ * Separated to allow Suspense boundary wrapping.
  */
-export default function Home() {
+function HomeContent() {
   const ctx = useFileSystem();
   const { updateUrl, getFileFromUrl, getExpandedFromUrl } = useUrlState();
 
@@ -135,10 +135,10 @@ export default function Home() {
           <div className="max-w-4xl mx-auto p-8">
             <div className="mb-6">
               <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50 mb-2">
-                {ctx.currentFile.path.split('/').pop()}
+                {formatFileName(ctx.currentFile.path.split('/').pop() || '', true)}
               </h1>
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                {ctx.currentFile.path}
+                {formatFilePath(ctx.currentFile.path)}
               </p>
             </div>
             <MarkdownRenderer content={ctx.currentFile.content} />
@@ -155,5 +155,21 @@ export default function Home() {
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * Main application page for the Instant Wiki Reader.
+ * Provides directory selection and markdown file viewing.
+ */
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
   );
 }

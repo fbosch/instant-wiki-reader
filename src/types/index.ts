@@ -8,6 +8,7 @@ export interface DirectoryNode {
   type: NodeType;
   children?: DirectoryNode[];
   isExpanded?: boolean;
+  indexFile?: string; // Path to index file if directory has one (e.g., "docs.md" for "docs/" folder)
 }
 
 export interface FileMeta {

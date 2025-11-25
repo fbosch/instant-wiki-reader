@@ -6,6 +6,7 @@ import { useFocusRing } from '@react-aria/focus';
 import { mergeProps } from '@react-aria/utils';
 import { useFileSystem } from '@/contexts/FileSystemContext';
 import { File, Folder, FolderOpen, ChevronRight } from 'lucide-react';
+import { formatFileName } from '@/lib/utils';
 import type { DirectoryNode } from '@/types';
 
 interface FileTreeItemProps {
@@ -41,7 +42,11 @@ function FileTreeItem({
       openFile(item.path);
       tree.setSelectedKeys(new Set([node.key]));
     } else {
+      // For directories, expand and open index file if it exists
       onToggleExpand(node.key);
+      if (item.indexFile) {
+        openFile(item.indexFile);
+      }
     }
   };
 
@@ -78,7 +83,9 @@ function FileTreeItem({
         ) : (
           <Folder className={`w-4 h-4 flex-shrink-0 ${isCurrentFile ? 'text-white' : 'text-blue-500'}`} />
         )}
-        <span className="text-sm truncate font-medium">{item.name}</span>
+        <span className="text-sm truncate font-medium">
+          {item.type === 'file' ? formatFileName(item.name, true) : formatFileName(item.name)}
+        </span>
       </div>
       {hasChildren && isExpanded && (
         <ul>
