@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { Search, X } from 'lucide-react';
+import { useSnapshot } from 'valtio';
+import { themeStore, colorThemes } from '@/store/theme-store';
 import type { DirectoryNode } from '@/types';
 
 interface FileNameSearchProps {
@@ -68,6 +70,8 @@ function filterTree(node: DirectoryNode, query: string): DirectoryNode | null {
  */
 export function FileNameSearch({ tree, onFilter }: FileNameSearchProps) {
   const [query, setQuery] = useState('');
+  const { colorTheme } = useSnapshot(themeStore);
+  const theme = colorThemes[colorTheme];
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newQuery = e.target.value;
@@ -102,21 +106,27 @@ export function FileNameSearch({ tree, onFilter }: FileNameSearchProps) {
   return (
     <div className="relative">
       <div className="relative flex items-center">
-        <Search className="absolute left-3 w-4 h-4 text-slate-400 pointer-events-none" />
+        <Search className="absolute left-3 w-4 h-4 pointer-events-none" style={{ color: theme.secondary }} />
         <input
           type="text"
           value={query}
           onChange={handleChange}
           placeholder="Filter files..."
-          className="w-full pl-9 pr-9 py-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-50 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+          className="w-full pl-9 pr-9 py-2 text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+          style={{
+            backgroundColor: theme.code,
+            borderColor: theme.border,
+            color: theme.text,
+            border: `1px solid ${theme.border}`,
+          }}
         />
         {query && (
           <button
             onClick={handleClear}
-            className="absolute right-2 p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
+            className="absolute right-2 p-1 rounded transition-colors hover:opacity-70"
             aria-label="Clear search"
           >
-            <X className="w-4 h-4 text-slate-400" />
+            <X className="w-4 h-4" style={{ color: theme.secondary }} />
           </button>
         )}
       </div>

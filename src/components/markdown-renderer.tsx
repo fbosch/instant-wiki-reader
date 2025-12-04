@@ -19,10 +19,17 @@ import { cn, extractAzureDevOpsPath } from "@/lib/utils";
 import { useFileSystem } from "@/contexts/FileSystemContext";
 import { getFileByDisplayPath } from "@/lib/path-manager";
 import mermaid from "mermaid";
+import type { FontFamily, ColorTheme } from "@/store/theme-store";
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  themeConfig?: {
+    colorTheme: ColorTheme;
+    fontFamily: FontFamily;
+    fontSize: number;
+    lineHeight: number;
+  };
 }
 
 /**

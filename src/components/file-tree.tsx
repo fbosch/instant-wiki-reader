@@ -7,6 +7,7 @@ import { mergeProps } from '@react-aria/utils';
 import { useSnapshot } from 'valtio';
 import { useFileSystem } from '@/contexts/FileSystemContext';
 import { uiStore, toggleExpandDir, setCurrentWiki } from '@/store/ui-store';
+import { themeStore, colorThemes } from '@/store/theme-store';
 import { File, Folder, FolderOpen, ChevronRight } from 'lucide-react';
 import { formatFileName } from '@/lib/utils';
 import type { DirectoryNode } from '@/types';
@@ -155,6 +156,8 @@ function FileTreeItem({
 }) {
   const { openFile, currentFile } = useFileSystem();
   const { currentWiki, wikiStates } = useSnapshot(uiStore);
+  const { colorTheme } = useSnapshot(themeStore);
+  const theme = colorThemes[colorTheme];
   const ref = React.useRef<HTMLDivElement>(null);
   const { focusProps } = useFocusRing();
   const hasScrolledToView = React.useRef(false);

@@ -8,12 +8,15 @@ import { FileTree } from '@/components/file-tree';
 import { CommandPalette } from '@/components/command-palette';
 import { FileNameSearch } from '@/components/file-name-search';
 import { DevTools } from '@/components/dev-tools';
-import { FolderOpen, FileText } from 'lucide-react';
+import { ThemeSettings } from '@/components/theme-settings';
+import { FolderOpen, FileText, Type } from 'lucide-react';
 import { useUrlState } from '@/hooks/use-url-state';
 import { getParentDirs, formatFileName } from '@/lib/utils';
 import { useEffect, Suspense, useState, useCallback, useSyncExternalStore } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import type { DirectoryNode } from '@/types';
+import { useSnapshot } from 'valtio';
+import { themeStore, colorThemes } from '@/store/theme-store';
 
 // Subscribe to hash changes for text fragment highlighting
 function subscribeToHashChanges(callback: () => void) {
@@ -44,6 +47,9 @@ function HomeContent() {
   
   // Subscribe to hash changes for reactive text fragment highlighting
   const currentHash = useSyncExternalStore(subscribeToHashChanges, getHash, getServerHash);
+  
+  // Get theme settings
+  const { fontFamily, fontSize, lineHeight, colorTheme } = useSnapshot(themeStore);
 
   // Set up URL update callback
   useEffect(() => {
@@ -260,6 +266,16 @@ function HomeContent() {
     );
   }
 
+  // Apply theme styles
+  const theme = colorThemes[colorTheme];
+  const contentStyle = {
+    fontFamily: fontFamily === 'serif' ? 'Georgia, serif' : 'system-ui, sans-serif',
+    fontSize: `${fontSize}rem`,
+    lineHeight: lineHeight,
+    backgroundColor: theme.bg,
+    color: theme.text,
+  };
+
   // Main application view - directory loaded
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
@@ -273,26 +289,36 @@ function HomeContent() {
       />
 
       {/* Sidebar - File tree */}
-      <aside className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col h-full">
-        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
+      <aside 
+        className="w-80 border-r flex flex-col h-full"
+        style={{ 
+          backgroundColor: theme.bg, 
+          borderColor: theme.border,
+          color: theme.text 
+        }}
+      >
+        <div className="p-4 flex-shrink-0" style={{ borderBottom: `1px solid ${theme.border}` }}>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50 truncate pr-2">
+            <h2 className="text-lg font-semibold truncate pr-2" style={{ color: theme.text }}>
               {ctx.wikiName || 'Directory'}
             </h2>
-            <button
-              onClick={handleSelectDirectory}
-              className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors flex-shrink-0"
-            >
-              Change
-            </button>
+            <div className="flex items-center gap-2">
+              <ThemeSettings />
+              <button
+                onClick={handleSelectDirectory}
+                className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors flex-shrink-0"
+              >
+                Change
+              </button>
+            </div>
           </div>
           
           {/* Filename search bar */}
           <FileNameSearch tree={ctx.directoryTree as DirectoryNode | null} onFilter={handleFilterTree} />
           
           {/* Hint for content search */}
-          <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 text-center">
-            Press <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded text-xs font-mono">⌘⇧F</kbd> for content search
+          <div className="mt-2 text-xs text-center" style={{ color: theme.secondary }}>
+            Press <kbd className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ backgroundColor: theme.code, border: `1px solid ${theme.border}` }}>⌘⇧F</kbd> for content search
           </div>
         </div>
         
@@ -306,16 +332,16 @@ function HomeContent() {
       </aside>
 
       {/* Main content area */}
-      <main className="flex-1 overflow-y-auto h-full">
+      <main className="flex-1 overflow-y-auto h-full" style={{ backgroundColor: theme.bg }}>
         {ctx.currentFile ? (
           <div className="flex gap-8 w-full mx-auto p-8 pr-4">
             {/* Main content - uses available space */}
-            <div className="flex-1 min-w-0 max-w-5xl">
+            <div className="flex-1 min-w-0 max-w-5xl" style={contentStyle}>
               <div className="mb-6">
-                <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50 mb-2">
+                <h1 className="text-3xl font-bold mb-2" style={{ color: theme.text }}>
                   {formatFileName(ctx.currentFile.path.split('/').pop() || '', true)}
                 </h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
+                <p className="text-sm" style={{ color: theme.secondary }}>
                   {ctx.currentFile.path}
                 </p>
               </div>
