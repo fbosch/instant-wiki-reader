@@ -235,6 +235,38 @@ if (condition) {
 3. Double-check your edit includes everything
 4. Verify the build succeeds after your edit
 
+## Path Handling (CRITICAL)
+
+### NO Path Transformations
+- **NEVER strip, add, or modify path prefixes**
+- **Store paths exactly as they appear** in the File objects
+- **Use paths as-is** in URLs, cache keys, and lookups
+- **No "with prefix" or "without prefix" variations**
+
+```typescript
+// ✅ GOOD - Use path exactly as-is
+const path = getFilePath(file);
+cache.set(path, content);
+openFile(path);
+
+// ❌ BAD - Transforming paths
+const displayPath = path.replace(prefix + '/', '');  // NO!
+const fullPath = prefix + '/' + path;                // NO!
+if (path.startsWith(prefix)) { /* variations */ }   // NO!
+```
+
+**Why:** Path transformations cause mismatches between:
+- What's stored in cache vs what's looked up
+- What's in the URL vs what's in the file system
+- What the tree stores vs what's actually needed
+
+**The rule:** If `getFilePath(file)` returns `"dir/file.md"`, then:
+- Store in cache as: `"dir/file.md"`
+- Store in URL as: `"dir/file.md"`
+- Look up as: `"dir/file.md"`
+
+No exceptions. No transformations. Keep it simple.
+
 ## When in Doubt
 
 1. **Favor explicitness over cleverness**
@@ -244,6 +276,7 @@ if (condition) {
 5. **Write code for humans first**
 6. **Test across multiple browsers** for File System APIs
 7. **COMPLETE YOUR EDITS** - Never leave code half-finished
+8. **NO PATH TRANSFORMATIONS** - Use paths exactly as-is
 
 ---
 

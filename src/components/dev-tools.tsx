@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useFileSystem } from '@/contexts/FileSystemContext';
-import { Trash2, Bug, X } from 'lucide-react';
+import { Trash2, Bug, X, Database } from 'lucide-react';
+import { getFileContentsDB } from '@/lib/file-system';
 
 /**
  * Floating developer tools panel
@@ -10,6 +11,11 @@ import { Trash2, Bug, X } from 'lucide-react';
  */
 export function DevTools() {
   const [isOpen, setIsOpen] = useState(false);
+  const [cacheStats, setCacheStats] = useState<{
+    metadata: number;
+    contents: number;
+    files: number;
+  } | null>(null);
   const { clearDirectory, isCaching } = useFileSystem();
 
   // Only show in development
@@ -29,6 +35,28 @@ export function DevTools() {
     } catch (error) {
       console.error('Failed to clear caches:', error);
       alert('Failed to clear caches. Check console for details.');
+    }
+  };
+
+  const handleInspectCache = async () => {
+    try {
+      const db = await getFileContentsDB();
+      const metadataCount = await db.count('metadata');
+      const contentsCount = await db.count('contents');
+      const filesCount = await db.count('files');
+      
+      setCacheStats({
+        metadata: metadataCount,
+        contents: contentsCount,
+        files: filesCount,
+      });
+      
+      // Also log some sample keys
+      const contentsKeys = await db.getAllKeys('contents');
+      console.log('[DevTools] Contents store keys (first 10):', contentsKeys.slice(0, 10));
+    } catch (error) {
+      console.error('[DevTools] Failed to inspect cache:', error);
+      setCacheStats({ metadata: 0, contents: 0, files: 0 });
     }
   };
 

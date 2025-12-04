@@ -96,6 +96,10 @@ export async function readDirectory(
   const files: File[] = [];
   const ignoredNames = new Set(['node_modules', '.git', '.obsidian']);
   const allowedHiddenDirs = new Set(['.attachments']); // Allow .attachments for images
+  
+  // Get the root directory name to prepend to all paths
+  // This ensures paths include the wiki name (e.g., "KK-Laaneportal.wiki/...")
+  const rootDirName = handle.name;
 
   async function traverse(
     dirHandle: FileSystemDirectoryHandle,
@@ -119,9 +123,11 @@ export async function readDirectory(
         const fileHandle = entry as FileSystemFileHandle;
         const file = await fileHandle.getFile();
         
-        // Polyfill webkitRelativePath for consistency with browser-fs-access
+        // Polyfill webkitRelativePath with FULL path including root directory name
+        // This makes it consistent with browser-fs-access behavior
+        const fullPath = `${rootDirName}/${entryPath}`;
         Object.defineProperty(file, 'webkitRelativePath', {
-          value: entryPath,
+          value: fullPath,
           writable: false,
           enumerable: true,
           configurable: true,
@@ -135,5 +141,9 @@ export async function readDirectory(
   }
 
   await traverse(handle, path);
+  console.log(`[readDirectory] Read ${files.length} files from root: ${rootDirName}`);
+  if (files.length > 0) {
+    console.log(`[readDirectory] First 3 paths:`, files.slice(0, 3).map(f => f.webkitRelativePath || f.name));
+  }
   return files;
 }

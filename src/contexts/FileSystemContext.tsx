@@ -123,14 +123,15 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
             setPermissionState('granted');
             setLastRefresh(Date.now());
             
-            // Load cached File objects from IndexedDB
+            // Try to load cached File objects (for reading files)
+            // If this fails, we'll fall back to IndexedDB cache
             const { loadCachedFiles } = await import('@/lib/file-system');
             const cachedFiles = await loadCachedFiles();
-            if (cachedFiles) {
+            if (cachedFiles && cachedFiles.length > 0) {
               console.log('[FileSystemContext] Loaded', cachedFiles.length, 'File objects from cache');
               setAllFiles(cachedFiles);
             } else {
-              console.log('[FileSystemContext] No cached File objects - will load from IndexedDB on demand');
+              console.log('[FileSystemContext] No cached File objects - will use IndexedDB only');
             }
             
             // Build search index in background (will load content from IndexedDB as needed)
@@ -182,15 +183,15 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           setFilePathMetadataFromCache(cached.files);
           console.log('[FileSystemContext] ✓ File path metadata map ready');
           
-          // Load cached File objects from IndexedDB
-          console.log('[FileSystemContext] Loading File objects from cache...');
+          // Try to load cached File objects (for reading files)  
+          // If this fails, we'll fall back to IndexedDB cache or File System Access
           const { loadCachedFiles } = await import('@/lib/file-system');
           const cachedFiles = await loadCachedFiles();
-          if (cachedFiles) {
+          if (cachedFiles && cachedFiles.length > 0) {
             console.log('[FileSystemContext] Loaded', cachedFiles.length, 'File objects from cache');
             setAllFiles(cachedFiles);
           } else {
-            console.log('[FileSystemContext] No cached File objects - files will be loaded from File System on demand');
+            console.log('[FileSystemContext] No cached File objects - will use IndexedDB or File System Access');
           }
           
           console.log('[FileSystemContext] ✓ Initialization complete (total:', (performance.now() - startTime).toFixed(2), 'ms)');
@@ -364,33 +365,15 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           return;
         }
 
-        // Load file content based on what's available
-        const directoryTree = fileSystemStore.directoryTree;
-        const commonPrefix = directoryTree?._commonRootPrefix;
-        
         console.log('[openFile] Loading file...');
         console.log('[openFile] - Path:', path);
-        console.log('[openFile] - commonPrefix:', commonPrefix);
         
         let content: string | null = null;
         
-        // ALWAYS try IndexedDB cache first (fastest and most reliable)
+        // Try IndexedDB cache first
         console.log('[openFile] Trying IndexedDB cache...');
         const { getFileContentFromCache } = await import('@/lib/file-system');
         content = await getFileContentFromCache(path);
-        
-        // Try with prefix variations if not found
-        if (content === null && commonPrefix) {
-          if (!path.startsWith(commonPrefix + '/')) {
-            const pathWithPrefix = `${commonPrefix}/${path}`;
-            console.log('[openFile] Trying cache with prefix:', pathWithPrefix);
-            content = await getFileContentFromCache(pathWithPrefix);
-          } else {
-            const pathWithoutPrefix = path.slice(commonPrefix.length + 1);
-            console.log('[openFile] Trying cache without prefix:', pathWithoutPrefix);
-            content = await getFileContentFromCache(pathWithoutPrefix);
-          }
-        }
         
         // Fallback to File objects if cache missed
         if (content === null) {
@@ -398,34 +381,45 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           console.log('[openFile] Cache miss, trying allFiles... (length:', allFiles.length, ')');
           
           if (allFiles.length > 0) {
-            // Find the file in allFiles
-            let targetPath = path;
-            let file = allFiles.find(f => getFilePath(f) === targetPath);
-            
-            // Try with prefix variations
-            if (!file && commonPrefix) {
-              if (!path.startsWith(commonPrefix + '/')) {
-                targetPath = `${commonPrefix}/${path}`;
-                console.log('[openFile] Trying with prefix:', targetPath);
-                file = allFiles.find(f => getFilePath(f) === targetPath);
-              } else {
-                targetPath = path.slice(commonPrefix.length + 1);
-                console.log('[openFile] Trying without prefix:', targetPath);
-                file = allFiles.find(f => getFilePath(f) === targetPath);
-              }
-            }
+            const file = allFiles.find(f => getFilePath(f) === path);
             
             if (file) {
               console.log('[openFile] ✓ Found file in allFiles, reading...');
               content = await readFileAsText(file);
+            } else {
+              console.log('[openFile] File not found in allFiles');
+              console.log('[openFile] Sample paths from allFiles:', allFiles.slice(0, 3).map(f => getFilePath(f)));
             }
+          }
+        }
+        
+        // Final fallback: Try to read from File System Access API directly
+        if (content === null && fileSystemStore.rootHandle) {
+          console.log('[openFile] Trying File System Access API directly...');
+          try {
+            // Navigate through directory structure to find the file
+            const parts = path.split('/');
+            let currentHandle: FileSystemDirectoryHandle = fileSystemStore.rootHandle;
+            
+            // Navigate through directories
+            for (let i = 0; i < parts.length - 1; i++) {
+              currentHandle = await currentHandle.getDirectoryHandle(parts[i]);
+            }
+            
+            // Get the file
+            const fileName = parts[parts.length - 1];
+            const fileHandle = await currentHandle.getFileHandle(fileName);
+            const file = await fileHandle.getFile();
+            content = await readFileAsText(file);
+            console.log('[openFile] ✓ Read from File System Access API');
+          } catch (error) {
+            console.log('[openFile] File System Access API failed:', error);
           }
         }
         
         if (content === null) {
           console.error('[openFile] ❌ File not found in any source');
           console.error('[openFile] Path:', path);
-          console.error('[openFile] commonPrefix:', commonPrefix);
           throw new Error(ERROR_MESSAGES.FILE_NOT_FOUND(path));
         }
         

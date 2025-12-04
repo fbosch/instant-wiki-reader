@@ -51,7 +51,7 @@ interface FileContentsDB extends DBSchema {
     key: string; // file path
     value: {
       path: string;
-      content: string;
+      content: ArrayBuffer; // Store as ArrayBuffer for speed
       lastModified: number;
     };
   };
@@ -252,6 +252,13 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
     await metadataTx.done;
     console.log('[cacheFiles] Metadata write complete');
     
+    // Log first few file paths for debugging
+    console.log('[cacheFiles] First 3 file paths:', files.slice(0, 3).map(f => ({
+      name: safeFileAccess(f, 'name', ''),
+      webkitRelativePath: safeFileAccess(f, 'webkitRelativePath', ''),
+      getFilePath: getFilePath(f),
+    })));
+    
     // Write File objects (for reconstruction)
     console.log('[cacheFiles] Writing File objects...');
     const BATCH_SIZE = 50;
@@ -281,22 +288,42 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
       return name.endsWith('.md') || name.endsWith('.markdown');
     });
     
+    console.log('[cacheFiles] Found', mdFiles.length, 'markdown files to cache');
+    
     for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {
       const batch = mdFiles.slice(i, Math.min(i + BATCH_SIZE, mdFiles.length));
-      const contentsTx = db.transaction('contents', 'readwrite');
+      
+      // Read all file contents as ArrayBuffer FIRST (outside transaction to avoid timeout)
+      const contentsToWrite: Array<{
+        path: string;
+        content: ArrayBuffer;
+        lastModified: number;
+      }> = [];
       
       for (const file of batch) {
-        const path = getFilePath(file);
-        const content = await file.text();
-        contentsTx.store.put({
-          path,
-          content,
-          lastModified: safeFileAccess(file, 'lastModified', Date.now()),
-        });
-        mdFilesCount++;
+        try {
+          const path = getFilePath(file);
+          const content = await file.arrayBuffer(); // Read as ArrayBuffer (faster than text)
+          contentsToWrite.push({
+            path,
+            content,
+            lastModified: safeFileAccess(file, 'lastModified', Date.now()),
+          });
+        } catch (error) {
+          console.error('[cacheFiles] Error reading file:', getFilePath(file), error);
+        }
       }
       
-      await contentsTx.done;
+      // Now write all contents in a fresh transaction (fast, no timeout)
+      if (contentsToWrite.length > 0) {
+        const contentsTx = db.transaction('contents', 'readwrite');
+        for (const item of contentsToWrite) {
+          contentsTx.store.put(item);
+          mdFilesCount++;
+        }
+        await contentsTx.done;
+      }
+      
       console.log(`[cacheFiles] Content batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(mdFiles.length / BATCH_SIZE)} complete (${mdFilesCount}/${mdFiles.length} files)`);
     }
     
@@ -357,12 +384,23 @@ export async function loadCachedFiles(): Promise<File[] | null> {
     }
     
     // Restore webkitRelativePath on File objects (it may be lost in IndexedDB round-trip)
-    const files = allFileRecords.map(record => {
+    const files = allFileRecords.map((record, index) => {
       const file = record.file;
       
       // Check if webkitRelativePath is missing or empty
       const currentPath = safeFileAccess(file, 'webkitRelativePath', '');
-      if (!currentPath) {
+      
+      // Log first few files for debugging
+      if (index < 3) {
+        console.log(`[loadCachedFiles] File ${index}:`, {
+          storedPath: record.path,
+          currentWebkitPath: currentPath,
+          fileName: file.name,
+        });
+      }
+      
+      // Always restore from stored path if they differ
+      if (currentPath !== record.path) {
         // Restore it from the stored path
         try {
           Object.defineProperty(file, 'webkitRelativePath', {
@@ -371,7 +409,9 @@ export async function loadCachedFiles(): Promise<File[] | null> {
             enumerable: true,
             configurable: true,
           });
-          console.log(`[loadCachedFiles] Restored webkitRelativePath for: ${record.path}`);
+          if (index < 3) {
+            console.log(`[loadCachedFiles] ✓ Restored webkitRelativePath from "${currentPath}" to "${record.path}"`);
+          }
         } catch (e) {
           console.warn(`[loadCachedFiles] Failed to restore webkitRelativePath for ${record.path}:`, e);
         }
@@ -841,12 +881,18 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
     console.log('[getFileContentFromCache] Looking up path:', path);
     const db = await getFileContentsDB();
     
+    // Helper to decode ArrayBuffer to string
+    const decodeContent = (buffer: ArrayBuffer): string => {
+      const decoder = new TextDecoder('utf-8');
+      return decoder.decode(buffer);
+    };
+    
     // Try direct lookup first
     let cached = await db.get('contents', path);
     
     if (cached && cached.content) {
       console.log('[getFileContentFromCache] Found content for:', path);
-      return cached.content;
+      return decodeContent(cached.content);
     }
     
     // Try with URL decoding
@@ -856,7 +902,7 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
         cached = await db.get('contents', decodedPath);
         if (cached && cached.content) {
           console.log('[getFileContentFromCache] Found content with decoded path:', decodedPath);
-          return cached.content;
+          return decodeContent(cached.content);
         }
       }
     } catch (e) {
@@ -870,7 +916,7 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
         cached = await db.get('contents', normalizedPath);
         if (cached && cached.content) {
           console.log('[getFileContentFromCache] Found content with normalized path:', normalizedPath);
-          return cached.content;
+          return decodeContent(cached.content);
         }
       }
       
@@ -880,7 +926,7 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
         cached = await db.get('contents', normalizedDecodedPath);
         if (cached && cached.content) {
           console.log('[getFileContentFromCache] Found content with normalized+decoded path:', normalizedDecodedPath);
-          return cached.content;
+          return decodeContent(cached.content);
         }
       }
     } catch (e) {
@@ -902,7 +948,7 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
       if (match && match.content) {
         console.log('[getFileContentFromCache] Found content by filename match:', match.path);
         console.warn('[getFileContentFromCache] Path mismatch - requested:', path, 'found:', match.path);
-        return match.content;
+        return decodeContent(match.content);
       }
     }
     
