@@ -9,6 +9,7 @@ import rehypeHighlight from 'rehype-highlight';
 import { match, P } from 'ts-pattern';
 import { cn, extractAzureDevOpsPath, findFileFlexible } from '@/lib/utils';
 import { useFileSystem } from '@/contexts/FileSystemContext';
+import { getFileByDisplayPath } from '@/lib/path-manager';
 
 interface MarkdownRendererProps {
   content: string;
@@ -61,7 +62,7 @@ const blobCache = new Map<string, string>();
  * Image component that loads images from the file system on-demand
  */
 function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
-  const { currentFile, rootHandle } = useFileSystem();
+  const { currentFile, rootHandle, allFiles } = useFileSystem();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
 
@@ -98,30 +99,49 @@ function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImage
     }
 
     // Need to load from file system
-    if (!resolvedPath || !rootHandle) {
+    if (!resolvedPath) {
       return;
     }
 
     let cancelled = false;
 
     async function loadImage() {
-      if (!rootHandle || !resolvedPath) return;
+      if (!resolvedPath) return;
       
       try {
-        const pathParts = resolvedPath.split('/');
-        let currentHandle: FileSystemDirectoryHandle = rootHandle;
+        let file: File | undefined;
 
-        // Navigate through directories (decode each part for file system access)
-        for (let i = 0; i < pathParts.length - 1; i++) {
-          const decodedPart = decodeURIComponent(pathParts[i]);
-          currentHandle = await currentHandle.getDirectoryHandle(decodedPart);
+        // Try File System Access API first if available
+        if (rootHandle) {
+          try {
+            // Chrome/Edge: Use File System Access API
+            const pathParts = resolvedPath.split('/');
+            let currentHandle: FileSystemDirectoryHandle = rootHandle;
+
+            // Navigate through directories (decode each part for file system access)
+            for (let i = 0; i < pathParts.length - 1; i++) {
+              const decodedPart = decodeURIComponent(pathParts[i]);
+              currentHandle = await currentHandle.getDirectoryHandle(decodedPart);
+            }
+
+            // Get the file (decode the filename)
+            const fileName = pathParts[pathParts.length - 1];
+            const decodedFileName = decodeURIComponent(fileName);
+            const fileHandle = await currentHandle.getFileHandle(decodedFileName);
+            file = await fileHandle.getFile();
+          } catch (fsError) {
+            // File System Access API failed, fall back to allFiles
+            console.warn('[MarkdownImage] File System Access failed, trying allFiles fallback:', fsError);
+            file = getFileByDisplayPath(allFiles, resolvedPath);
+          }
+        } else {
+          // Firefox/Safari: Use allFiles array with PathManager
+          file = getFileByDisplayPath(allFiles, resolvedPath);
         }
 
-        // Get the file (decode the filename)
-        const fileName = pathParts[pathParts.length - 1];
-        const decodedFileName = decodeURIComponent(fileName);
-        const fileHandle = await currentHandle.getFileHandle(decodedFileName);
-        const file = await fileHandle.getFile();
+        if (!file) {
+          throw new Error(`Image file not found: ${resolvedPath}`);
+        }
 
         if (!cancelled) {
           const url = URL.createObjectURL(file);
@@ -141,7 +161,7 @@ function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImage
     return () => {
       cancelled = true;
     };
-  }, [srcString, isExternalUrl, cachedUrl, resolvedPath, rootHandle]);
+  }, [srcString, isExternalUrl, cachedUrl, resolvedPath, rootHandle, allFiles]);
 
   if (error) {
     return (

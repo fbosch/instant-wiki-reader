@@ -14,7 +14,6 @@ import {
   openDirectory,
   buildDirectoryTree,
   filterMarkdownFiles,
-  getFileByPath,
   readFileAsText,
   getSavedDirectoryHandle,
   saveDirectoryHandle,
@@ -28,6 +27,7 @@ import {
   cleanWikiName,
 } from '@/lib/file-system';
 import { pickDirectory, verifyPermission, readDirectory } from '@/lib/fs-access';
+import { getFileByDisplayPath } from '@/lib/path-manager';
 import { useWorkers } from '@/hooks/use-workers';
 
 // Error messages
@@ -384,18 +384,8 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           return;
         }
 
-        // If the directory tree has a common root prefix, we need to add it back
-        // when looking up files (since allFiles have the original paths with prefix)
-        let lookupPath = path;
-        if (state.directoryTree && '_commonRootPrefix' in state.directoryTree) {
-          const prefix = (state.directoryTree as DirectoryNode & { _commonRootPrefix?: string })._commonRootPrefix;
-          if (prefix) {
-            lookupPath = `${prefix}/${path}`;
-          }
-        }
-
-        // Find file in allFiles
-        const file = getFileByPath(allFiles, lookupPath);
+        // Use PathManager functional helper to find the file
+        const file = getFileByDisplayPath(state.allFiles, path);
         if (!file) {
           throw new Error(ERROR_MESSAGES.FILE_NOT_FOUND(path));
         }
@@ -418,7 +408,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         throw error;
       }
     },
-    [allFiles, state.fileCache, state.expandedDirs, state.directoryTree, urlUpdateCallback]
+    [state.fileCache, state.expandedDirs, state.allFiles, urlUpdateCallback]
   );
 
   // Search (currently simple sync search, can be enhanced with searchWorker for full-text)
