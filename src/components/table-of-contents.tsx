@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useEffect } from 'react';
 import { extractTableOfContents, type TocEntry } from '@/lib/utils';
 
 interface TableOfContentsProps {
@@ -21,10 +21,15 @@ function TocItem({ entry, level }: TocItemProps) {
     e.preventDefault();
     const element = document.getElementById(entry.id);
     if (element) {
-      // Scroll with instant behavior for snappier response
-      element.scrollIntoView({ behavior: 'instant', block: 'start' });
+      // Update URL hash without triggering a page reload
+      window.history.pushState(null, '', `#${entry.id}`);
+      
+      // Scroll with smooth behavior
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
       // Add a small offset to account for any sticky headers
-      window.scrollBy(0, -16);
+      setTimeout(() => {
+        window.scrollBy(0, -16);
+      }, 100);
     }
   };
 
@@ -60,6 +65,23 @@ export const TableOfContents = memo(function TableOfContents({
   className = '',
 }: TableOfContentsProps) {
   const toc = useMemo(() => extractTableOfContents(content), [content]);
+
+  // Scroll to hash on mount or when content changes
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash) {
+      // Remove the # from the hash
+      const id = hash.substring(1);
+      const element = document.getElementById(id);
+      if (element) {
+        // Small delay to ensure the content is rendered
+        setTimeout(() => {
+          element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          window.scrollBy(0, -16);
+        }, 100);
+      }
+    }
+  }, [content]); // Re-run when content changes (new file opened)
 
   if (toc.length === 0) {
     return null;

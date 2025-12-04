@@ -31,12 +31,34 @@ export function useUrlState() {
     }
 
     const newUrl = params.toString();
-    const finalUrl = newUrl ? `?${newUrl}` : '/';
+    // Preserve the hash if present
+    const hash = window.location.hash;
+    const finalUrl = newUrl ? `?${newUrl}${hash}` : `/${hash}`;
     router.replace(finalUrl, { scroll: false });
   }, [router, searchParams]);
 
   const getFileFromUrl = useCallback(() => {
-    return searchParams.get('file');
+    const rawFile = searchParams.get('file');
+    if (!rawFile) return null;
+    
+    // Handle double (or more) URL encoding by decoding until we get a stable result
+    let decoded = rawFile;
+    let prevDecoded = '';
+    let attempts = 0;
+    
+    // Keep decoding until the string doesn't change anymore (max 3 iterations)
+    while (decoded !== prevDecoded && attempts < 3) {
+      prevDecoded = decoded;
+      try {
+        decoded = decodeURIComponent(decoded);
+      } catch (e) {
+        // If decoding fails, stop and return what we have
+        break;
+      }
+      attempts++;
+    }
+    
+    return decoded;
   }, [searchParams]);
 
   const getExpandedFromUrl = useCallback(() => {

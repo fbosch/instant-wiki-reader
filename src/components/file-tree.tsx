@@ -157,6 +157,7 @@ function FileTreeItem({
   const { currentWiki, wikiStates } = useSnapshot(uiStore);
   const ref = React.useRef<HTMLDivElement>(null);
   const { focusProps } = useFocusRing();
+  const hasScrolledToView = React.useRef(false);
 
   // Get expanded dirs for current wiki
   const expandedDirs = currentWiki && wikiStates.has(currentWiki) 
@@ -188,6 +189,28 @@ function FileTreeItem({
       }
     }
   };
+
+  // Scroll the current file into view when it becomes active
+  React.useEffect(() => {
+    if (isCurrentFile && ref.current && !hasScrolledToView.current) {
+      // Small delay to ensure the DOM is fully rendered and directories are expanded
+      const timeoutId = setTimeout(() => {
+        ref.current?.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'center',
+          inline: 'nearest'
+        });
+        hasScrolledToView.current = true;
+      }, 200);
+      
+      return () => clearTimeout(timeoutId);
+    }
+    
+    // Reset the flag when the file changes
+    if (!isCurrentFile) {
+      hasScrolledToView.current = false;
+    }
+  }, [isCurrentFile]);
 
   return (
     <li>

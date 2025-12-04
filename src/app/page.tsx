@@ -25,6 +25,8 @@ function HomeContent() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [filteredTree, setFilteredTree] = useState<DirectoryNode | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [hasScrolledToHash, setHasScrolledToHash] = useState(false);
+  const [isLoadingFromUrl, setIsLoadingFromUrl] = useState(false);
 
   // Set up URL update callback
   useEffect(() => {
@@ -62,11 +64,17 @@ function HomeContent() {
       // Open the file
       if (ctx.currentFile?.path !== filePath) {
         console.log('[HomeContent] Opening file from URL:', filePath);
-        ctx.openFile(filePath).catch((error) => {
-          console.error('Failed to open file from URL:', error);
-          console.error('[HomeContent] File path from URL:', filePath);
-          console.error('[HomeContent] Current file:', ctx.currentFile?.path);
-        });
+        setIsLoadingFromUrl(true);
+        ctx.openFile(filePath)
+          .then(() => {
+            setIsLoadingFromUrl(false);
+          })
+          .catch((error) => {
+            console.error('Failed to open file from URL:', error);
+            console.error('[HomeContent] File path from URL:', filePath);
+            console.error('[HomeContent] Current file:', ctx.currentFile?.path);
+            setIsLoadingFromUrl(false);
+          });
       }
     } else if (expandedDirs.size > 0) {
       // Only restore expanded directories if no file path
@@ -74,6 +82,40 @@ function HomeContent() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.directoryTree]); // Only run when tree is loaded
+
+  // Handle hash scrolling when file content changes or hash changes
+  useEffect(() => {
+    if (!ctx.currentFile) return;
+
+    const hash = window.location.hash;
+    if (!hash) {
+      setHasScrolledToHash(false);
+      return;
+    }
+
+    // Give the markdown renderer time to render the content
+    const timeoutId = setTimeout(() => {
+      const elementId = hash.slice(1); // Remove the # prefix
+      const element = document.getElementById(elementId);
+      
+      if (element) {
+        const isInitialScroll = !hasScrolledToHash;
+        console.log('[HomeContent] Scrolling to hash:', hash, isInitialScroll ? '(instant)' : '(smooth)');
+        
+        // Use instant scroll on initial load, smooth scroll on subsequent navigations
+        element.scrollIntoView({ 
+          behavior: isInitialScroll ? 'auto' : 'smooth', 
+          block: 'start' 
+        });
+        
+        setHasScrolledToHash(true);
+      } else {
+        console.warn('[HomeContent] Hash element not found:', hash);
+      }
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [ctx.currentFile, ctx.currentFile?.path, hasScrolledToHash]); // Run when file changes
 
   // Keyboard shortcut for command palette (Cmd+Shift+F / Ctrl+Shift+F)
   useHotkeys('mod+shift+f', (e) => {
@@ -211,6 +253,15 @@ function HomeContent() {
                 <TableOfContents content={ctx.currentFile.content} />
               </div>
             </aside>
+          </div>
+        ) : isLoadingFromUrl ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <p className="text-slate-600 dark:text-slate-400">
+                Loading file...
+              </p>
+            </div>
           </div>
         ) : (
           <div className="flex items-center justify-center h-full">
