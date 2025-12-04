@@ -169,6 +169,17 @@ function FileTreeItem({
   const isExpanded = expandedDirs.has(node.key) || (searchQuery && item.isExpanded === true);
   const hasChildren = node.children && node.children.length > 0;
   const isCurrentFile = currentFile?.path === item.path;
+  
+  // Debug logging for path comparison
+  if (currentFile && item.type === 'file' && item.path.includes(currentFile.path.split('/').pop() || '')) {
+    console.log('[FileTreeItem] Path comparison debug:', {
+      currentFilePath: currentFile.path,
+      itemPath: item.path,
+      isMatch: isCurrentFile,
+      currentFilePathEncoded: encodeURIComponent(currentFile.path),
+      itemPathEncoded: encodeURIComponent(item.path),
+    });
+  }
 
   const handleClick = () => {
     console.log('[FileTreeItem] Clicked:', item.name, 'Type:', item.type, 'Path:', item.path, 'Node key:', node.key);
@@ -196,7 +207,7 @@ function FileTreeItem({
       // Small delay to ensure the DOM is fully rendered and directories are expanded
       const timeoutId = setTimeout(() => {
         ref.current?.scrollIntoView({ 
-          behavior: 'smooth', 
+          behavior: 'auto', 
           block: 'center',
           inline: 'nearest'
         });

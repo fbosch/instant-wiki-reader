@@ -40,6 +40,10 @@ export interface FileSystemStore {
 // Maps file paths for quick existence checks and metadata lookups
 let globalFilePathMetadata = new Map<string, { path: string; name: string }>();
 
+// WeakMap to store decoded paths for File objects
+// This avoids the issue of File.webkitRelativePath containing URL-encoded characters
+let globalFileToDecodedPath = new WeakMap<File, string>();
+
 export function getFilePathMetadata(): Map<string, { path: string; name: string }> {
   return globalFilePathMetadata;
 }
@@ -48,11 +52,23 @@ export function hasFilePath(path: string): boolean {
   return globalFilePathMetadata.has(path);
 }
 
+export function getDecodedPathForFile(file: File): string | undefined {
+  return globalFileToDecodedPath.get(file);
+}
+
 export function setFilePathMetadataFromCache(metadata: Array<{ path: string; name: string }>) {
   console.log('[setFilePathMetadataFromCache] Building map from', metadata.length, 'entries');
   globalFilePathMetadata = new Map();
   for (const item of metadata) {
-    globalFilePathMetadata.set(item.path, item);
+    // Decode the path to handle legacy cached data with URL-encoded paths
+    let decodedPath = item.path;
+    try {
+      decodedPath = decodeURIComponent(item.path);
+    } catch (e) {
+      // If decoding fails, keep the original path
+      console.warn('[setFilePathMetadataFromCache] Failed to decode path:', item.path);
+    }
+    globalFilePathMetadata.set(decodedPath, { path: decodedPath, name: item.name });
   }
   console.log('[setFilePathMetadataFromCache] Done -', globalFilePathMetadata.size, 'entries');
 }
@@ -138,7 +154,8 @@ export function setAllFiles(files: File[]) {
     // Build metadata map for path lookups (not storing full File objects)
     // Store it in module-level variable (not in Valtio) to avoid proxy issues with Maps
     globalFilePathMetadata = new Map();
-    console.log('[setAllFiles] Created metadata map');
+    globalFileToDecodedPath = new WeakMap();
+    console.log('[setAllFiles] Created metadata map and WeakMap');
     
     // Import getFilePath
     const { getFilePath } = require('@/lib/path-manager');
@@ -156,6 +173,7 @@ export function setAllFiles(files: File[]) {
         console.warn('[setAllFiles] Failed to decode path:', rawPath, e);
       }
       globalFilePathMetadata.set(decodedPath, { path: decodedPath, name: file.name });
+      globalFileToDecodedPath.set(file, decodedPath);
     }
     
     console.log('[setAllFiles] Built metadata map with', globalFilePathMetadata.size, 'entries (took', (performance.now() - startTime).toFixed(2), 'ms)');

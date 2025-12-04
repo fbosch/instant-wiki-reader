@@ -491,8 +491,24 @@ export function buildDirectoryTreeFromMetadata(
     return root;
   }
 
+  // Decode all paths to handle legacy cached data with URL-encoded paths
+  // This ensures consistency regardless of when the data was cached
+  const decodedMetadata = metadata.map(item => {
+    let decodedPath = item.path;
+    try {
+      decodedPath = decodeURIComponent(item.path);
+    } catch (e) {
+      // If decoding fails, keep the original path
+      console.warn('[buildDirectoryTreeFromMetadata] Failed to decode path:', item.path);
+    }
+    return {
+      path: decodedPath,
+      name: item.name,
+    };
+  });
+  
   // Sort files by path for efficient tree building
-  const sortedFiles = [...metadata].sort((a, b) => a.path.localeCompare(b.path));
+  const sortedFiles = [...decodedMetadata].sort((a, b) => a.path.localeCompare(b.path));
 
   // Detect if all paths share a common root directory (from browser-fs-access)
   // We'll store this but NOT strip it from paths - only use for display
