@@ -7,6 +7,7 @@ import {
   useCallback,
   createElement,
   useMemo,
+  useRef,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -17,6 +18,7 @@ import { match, P } from "ts-pattern";
 import { cn, extractAzureDevOpsPath } from "@/lib/utils";
 import { useFileSystem } from "@/contexts/FileSystemContext";
 import { getFileByDisplayPath } from "@/lib/path-manager";
+import mermaid from "mermaid";
 
 interface MarkdownRendererProps {
   content: string;
@@ -244,9 +246,71 @@ function MarkdownImage({
     <img
       src={blobUrl}
       alt={alt}
-      className="max-w-full h-auto rounded-lg shadow-sm my-4"
-      decoding="async"
+      className="max-w-full h-auto my-4 rounded-lg shadow-md"
       {...props}
+    />
+  );
+}
+
+/**
+ * Mermaid diagram component that renders diagrams from code blocks
+ */
+function MermaidDiagram({ chart }: { chart: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [svg, setSvg] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    console.log('[MermaidDiagram] Rendering chart:', chart);
+    
+    // Initialize mermaid with configuration
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'default',
+      securityLevel: 'loose',
+    });
+
+    // Generate unique ID for this diagram
+    const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+
+    async function renderDiagram() {
+      try {
+        console.log('[MermaidDiagram] Calling mermaid.render with id:', id);
+        const { svg } = await mermaid.render(id, chart);
+        console.log('[MermaidDiagram] Render successful, SVG length:', svg.length);
+        setSvg(svg);
+        setError(null);
+      } catch (err) {
+        console.error('[MermaidDiagram] Rendering error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to render diagram');
+      }
+    }
+
+    renderDiagram();
+  }, [chart]);
+
+  if (error) {
+    return (
+      <div className="my-4 p-4 border border-red-300 dark:border-red-700 rounded bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300">
+        <div className="font-semibold mb-2">Mermaid Error:</div>
+        <pre className="text-sm overflow-x-auto">{error}</pre>
+      </div>
+    );
+  }
+
+  if (!svg) {
+    return (
+      <div className="my-4 h-32 bg-slate-100 dark:bg-slate-800 rounded animate-pulse flex items-center justify-center text-slate-400">
+        Rendering diagram...
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="my-4 flex justify-center"
+      dangerouslySetInnerHTML={{ __html: svg }}
     />
   );
 }
@@ -389,6 +453,12 @@ function preprocessMarkdown(
   }
   
   let processed = content;
+
+  // Convert Azure DevOps wiki Mermaid syntax (:::mermaid) to standard code fences
+  // Matches: :::mermaid ... ::: or ::: mermaid ... :::
+  processed = processed.replace(/:::\s*mermaid\s*\n([\s\S]*?)\n:::/gi, (match, code) => {
+    return '```mermaid\n' + code.trim() + '\n```';
+  });
 
   // Fix headers without space after # symbols
   // Matches: ##Header or ###Header etc. (but not URLs like http://)
@@ -598,6 +668,15 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
                   {children}
                 </code>
               );
+            }
+
+            // Check for Mermaid diagrams
+            const isMermaid = className === "language-mermaid";
+            console.log('[CodeBlock] className:', className, 'isMermaid:', isMermaid);
+            if (isMermaid) {
+              const code = String(children).replace(/\n$/, '');
+              console.log('[CodeBlock] Rendering Mermaid diagram, code length:', code.length);
+              return <MermaidDiagram chart={code} />;
             }
 
             // Let rehype-highlight handle block code styling

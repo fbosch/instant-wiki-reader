@@ -2,6 +2,7 @@
 
 import { parseAsString, parseAsArrayOf, useQueryStates } from 'nuqs';
 import { useCallback, useSyncExternalStore } from 'react';
+import { useRouter } from 'next/navigation';
 
 /**
  * Helper function to decode URL-encoded file paths
@@ -67,6 +68,7 @@ const expandedParser = parseAsArrayOf(parseAsString, ',').withDefault([]);
  * Provides functions to update file path, expanded directories, and text fragments in the URL.
  */
 export function useUrlState() {
+  const router = useRouter();
   const [state, setState] = useQueryStates(
     {
       file: fileParser,
@@ -90,29 +92,26 @@ export function useUrlState() {
     expanded?: Set<string> | null;
     textFragment?: string | null;
   }) => {
-    // Build the full URL with text fragment if provided
+    // Handle text fragments with client-side navigation
     if (updates.textFragment !== undefined && updates.textFragment) {
       console.log('[useUrlState] Text fragment update:', updates.textFragment);
       
-      // Build query string with new or existing values
-      const params = new URLSearchParams(window.location.search);
+      // First update query params via nuqs (client-side)
+      const newState: { file?: string | null; expanded?: string[] | null } = {};
       
-      // Update file parameter if provided
       if (updates.file !== undefined) {
-        if (updates.file) {
-          params.set('file', updates.file);
-        } else {
-          params.delete('file');
-        }
+        newState.file = updates.file || null;
       }
       
-      // Update expanded parameter if provided
       if (updates.expanded !== undefined) {
-        if (updates.expanded && updates.expanded.size > 0) {
-          params.set('expanded', Array.from(updates.expanded).join(','));
-        } else {
-          params.delete('expanded');
-        }
+        newState.expanded = updates.expanded && updates.expanded.size > 0
+          ? Array.from(updates.expanded)
+          : null;
+      }
+      
+      // Update state if needed
+      if (Object.keys(newState).length > 0) {
+        await setState(newState);
       }
       
       // Text fragment syntax: #:~:text=textStart
@@ -120,14 +119,12 @@ export function useUrlState() {
       const encodedText = encodeURIComponent(updates.textFragment).replace(/-/g, '%2D');
       const fragment = `:~:text=${encodedText}`;
       
-      // Build full URL and navigate
-      const queryString = params.toString();
-      const newUrl = `${window.location.pathname}${queryString ? '?' + queryString : ''}#${fragment}`;
-      console.log('[useUrlState] Navigating to:', newUrl);
+      console.log('[useUrlState] Setting text fragment:', fragment);
       
-      // Use window.location.href to trigger a full navigation
-      // This is required for text fragments to work - they only work on navigation, not hash changes
-      window.location.href = newUrl;
+      // Set hash after state update
+      // Note: Browser's native text fragment highlighting only works on full navigation
+      // So we'll need to handle highlighting manually in the app
+      window.location.hash = fragment;
     } else {
       // No text fragment - update query params normally
       const newState: { file?: string | null; expanded?: string[] | null } = {};

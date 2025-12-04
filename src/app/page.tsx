@@ -87,7 +87,7 @@ function HomeContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.directoryTree, getFileFromUrl]); // React to tree and URL changes
 
-  // Handle hash scrolling when file content changes or hash changes
+  // Handle hash scrolling and text fragment highlighting
   useEffect(() => {
     if (!ctx.currentFile) return;
 
@@ -99,22 +99,76 @@ function HomeContent() {
 
     // Give the markdown renderer time to render the content
     const timeoutId = setTimeout(() => {
-      const elementId = hash.slice(1); // Remove the # prefix
-      const element = document.getElementById(elementId);
+      // Check if this is a text fragment (#:~:text=...)
+      const textFragmentMatch = hash.match(/#:~:text=(.+)/);
       
-      if (element) {
-        const isInitialScroll = !hasScrolledToHash;
-        console.log('[HomeContent] Scrolling to hash:', hash, isInitialScroll ? '(instant)' : '(smooth)');
-        
-        // Use instant scroll on initial load, smooth scroll on subsequent navigations
-        element.scrollIntoView({ 
-          behavior: isInitialScroll ? 'auto' : 'smooth', 
-          block: 'start' 
-        });
-        
-        setHasScrolledToHash(true);
+      if (textFragmentMatch) {
+        // Handle text fragment
+        try {
+          const searchText = decodeURIComponent(textFragmentMatch[1].replace(/%2D/g, '-'));
+          console.log('[HomeContent] Searching for text fragment:', searchText);
+          
+          // Find text in the document
+          const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_TEXT,
+            null
+          );
+          
+          let node;
+          while ((node = walker.nextNode())) {
+            const text = node.textContent || '';
+            const index = text.toLowerCase().indexOf(searchText.toLowerCase());
+            
+            if (index !== -1 && node.parentElement) {
+              console.log('[HomeContent] Found text fragment, scrolling and highlighting');
+              
+              // Scroll to the element
+              node.parentElement.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'center' 
+              });
+              
+              // Highlight the text temporarily
+              const range = document.createRange();
+              range.setStart(node, index);
+              range.setEnd(node, index + searchText.length);
+              
+              const selection = window.getSelection();
+              selection?.removeAllRanges();
+              selection?.addRange(range);
+              
+              // Clear selection after 2 seconds
+              setTimeout(() => {
+                selection?.removeAllRanges();
+              }, 2000);
+              
+              setHasScrolledToHash(true);
+              break;
+            }
+          }
+        } catch (err) {
+          console.error('[HomeContent] Error handling text fragment:', err);
+        }
       } else {
-        console.warn('[HomeContent] Hash element not found:', hash);
+        // Handle regular hash (element ID)
+        const elementId = hash.slice(1); // Remove the # prefix
+        const element = document.getElementById(elementId);
+        
+        if (element) {
+          const isInitialScroll = !hasScrolledToHash;
+          console.log('[HomeContent] Scrolling to hash:', hash, isInitialScroll ? '(instant)' : '(smooth)');
+          
+          // Use instant scroll on initial load, smooth scroll on subsequent navigations
+          element.scrollIntoView({ 
+            behavior: isInitialScroll ? 'auto' : 'smooth', 
+            block: 'start' 
+          });
+          
+          setHasScrolledToHash(true);
+        } else {
+          console.warn('[HomeContent] Hash element not found:', hash);
+        }
       }
     }, 100);
 
