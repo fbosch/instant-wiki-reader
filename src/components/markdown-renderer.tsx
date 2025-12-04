@@ -135,8 +135,20 @@ function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImage
             file = getFileByDisplayPath(allFiles, resolvedPath);
           }
         } else {
-          // Firefox/Safari: Use allFiles array with PathManager
+          // Firefox/Safari or cached mode: Try allFiles first
           file = getFileByDisplayPath(allFiles, resolvedPath);
+        }
+
+        // If still not found, try IndexedDB cache (for Firefox cached mode or when allFiles is empty)
+        if (!file) {
+          console.log('[MarkdownImage] Not found in allFiles, trying IndexedDB cache for:', resolvedPath);
+          const { getFileFromCache } = await import('@/lib/file-system');
+          const cachedFile = await getFileFromCache(resolvedPath);
+          
+          if (cachedFile) {
+            console.log('[MarkdownImage] Loaded from IndexedDB cache:', resolvedPath);
+            file = cachedFile;
+          }
         }
 
         if (!file) {

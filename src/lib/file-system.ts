@@ -788,6 +788,48 @@ export async function getWikiNameFromGit(
 }
 
 /**
+ * Get a File object from IndexedDB by path.
+ * Used for loading binary files (like images) in cached mode.
+ * 
+ * @param path - File path (webkitRelativePath)
+ * @returns File object, or null if not found
+ */
+export async function getFileFromCache(path: string): Promise<File | null> {
+  try {
+    console.log('[getFileFromCache] Looking up file:', path);
+    const db = await getFileContentsDB();
+    
+    // Try direct lookup first
+    let cached = await db.get('files', path);
+    
+    if (cached && cached.file) {
+      console.log('[getFileFromCache] Found file for:', path);
+      return cached.file;
+    }
+    
+    // Try with URL decoding
+    try {
+      const decodedPath = decodeURIComponent(path);
+      if (decodedPath !== path) {
+        cached = await db.get('files', decodedPath);
+        if (cached && cached.file) {
+          console.log('[getFileFromCache] Found file with decoded path:', decodedPath);
+          return cached.file;
+        }
+      }
+    } catch (e) {
+      // Ignore decoding errors
+    }
+    
+    console.log('[getFileFromCache] No file found for:', path);
+    return null;
+  } catch (error) {
+    console.error('[getFileFromCache] Error:', error);
+    return null;
+  }
+}
+
+/**
  * Get file content directly from IndexedDB by path.
  * Used for cached files in Firefox/Safari.
  * 

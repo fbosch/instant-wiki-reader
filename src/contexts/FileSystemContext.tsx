@@ -240,9 +240,13 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         // Read all files
         files = await readDirectory(handle);
         
-        // Cache files for web worker access
+        // Cache files for web worker access (async, non-blocking)
         if (wikiNameValue) {
-          await cacheFiles(files, wikiNameValue);
+          cacheFiles(files, wikiNameValue).then(() => {
+            console.log('[FileSystemContext] Background caching complete');
+          }).catch((error) => {
+            console.error('[FileSystemContext] Background caching failed:', error);
+          });
         }
       } else {
         // Fallback to browser-fs-access (Firefox, Safari, etc.)

@@ -92,6 +92,21 @@ function HomeContent() {
     }
   };
 
+  const handleClearCaches = async () => {
+    if (!confirm('Clear all caches? This will remove cached files and you\'ll need to reselect your directory.')) {
+      return;
+    }
+    
+    try {
+      await ctx.clearDirectory();
+      alert('Caches cleared successfully! Please reload the page.');
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to clear caches:', error);
+      alert('Failed to clear caches. Check console for details.');
+    }
+  };
+
   // Show loading spinner during initialization or scanning
   if (ctx.isInitializing || ctx.isScanning) {
     return (
@@ -121,13 +136,23 @@ function HomeContent() {
               Browse and read your local markdown wiki files directly in your browser.
             </p>
           </div>
-          <button
-            onClick={handleSelectDirectory}
-            className="flex items-center gap-3 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg hover:shadow-xl"
-          >
-            <FolderOpen className="w-5 h-5" />
-            Open Wiki Directory
-          </button>
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={handleSelectDirectory}
+              className="flex items-center justify-center gap-3 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg hover:shadow-xl"
+            >
+              <FolderOpen className="w-5 h-5" />
+              Open Wiki Directory
+            </button>
+            {process.env.NODE_ENV === 'development' && (
+              <button
+                onClick={handleClearCaches}
+                className="flex items-center justify-center gap-2 px-4 py-2 text-sm bg-red-100 hover:bg-red-200 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-700 dark:text-red-400 rounded-lg transition-colors"
+              >
+                Clear All Caches (Dev)
+              </button>
+            )}
+          </div>
           <div className="flex flex-col gap-2 text-sm text-slate-500 dark:text-slate-400">
             <p>Your files stay on your computer.</p>
             <p>No upload, no server, completely private.</p>
@@ -153,12 +178,23 @@ function HomeContent() {
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50 truncate pr-2">
               {ctx.wikiName || 'Directory'}
             </h2>
-            <button
-              onClick={handleSelectDirectory}
-              className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors flex-shrink-0"
-            >
-              Change
-            </button>
+            <div className="flex gap-2 flex-shrink-0">
+              <button
+                onClick={handleSelectDirectory}
+                className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+              >
+                Change
+              </button>
+              {process.env.NODE_ENV === 'development' && (
+                <button
+                  onClick={handleClearCaches}
+                  className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Clear all caches (dev only)"
+                >
+                  Clear Cache
+                </button>
+              )}
+            </div>
           </div>
           
           {/* Filename search bar */}
