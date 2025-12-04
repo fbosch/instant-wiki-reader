@@ -365,65 +365,59 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         }
 
         // Load file content based on what's available
-        // Access allFiles from raw store (not snapshot) because it's wrapped in ref()
         const directoryTree = fileSystemStore.directoryTree;
         const commonPrefix = directoryTree?._commonRootPrefix;
-        const allFiles = fileSystemStore.allFiles;
         
         console.log('[openFile] Loading file...');
         console.log('[openFile] - Path:', path);
         console.log('[openFile] - commonPrefix:', commonPrefix);
-        console.log('[openFile] - directoryTree?:', !!directoryTree);
-        console.log('[openFile] - allFiles.length:', allFiles.length);
-        console.log('[openFile] - allFiles sample (first 3):', allFiles.slice(0, 3).map(f => getFilePath(f)));
         
         let content: string | null = null;
         
-        // Try to read from File objects if available
-        if (allFiles.length > 0) {
-          console.log('[openFile] Trying to find file in allFiles...');
-          
-          // Find the file in allFiles
-          let targetPath = path;
-          let file = allFiles.find(f => getFilePath(f) === targetPath);
-          
-          // Try with prefix variations
-          if (!file && commonPrefix) {
-            if (!path.startsWith(commonPrefix + '/')) {
-              targetPath = `${commonPrefix}/${path}`;
-              console.log('[openFile] Trying with prefix:', targetPath);
-              file = allFiles.find(f => getFilePath(f) === targetPath);
-            } else {
-              targetPath = path.slice(commonPrefix.length + 1);
-              console.log('[openFile] Trying without prefix:', targetPath);
-              file = allFiles.find(f => getFilePath(f) === targetPath);
-            }
-          }
-          
-          if (file) {
-            console.log('[openFile] ✓ Found file in allFiles, reading...');
-            content = await readFileAsText(file);
+        // ALWAYS try IndexedDB cache first (fastest and most reliable)
+        console.log('[openFile] Trying IndexedDB cache...');
+        const { getFileContentFromCache } = await import('@/lib/file-system');
+        content = await getFileContentFromCache(path);
+        
+        // Try with prefix variations if not found
+        if (content === null && commonPrefix) {
+          if (!path.startsWith(commonPrefix + '/')) {
+            const pathWithPrefix = `${commonPrefix}/${path}`;
+            console.log('[openFile] Trying cache with prefix:', pathWithPrefix);
+            content = await getFileContentFromCache(pathWithPrefix);
           } else {
-            console.log('[openFile] File not found in allFiles, will try cache');
+            const pathWithoutPrefix = path.slice(commonPrefix.length + 1);
+            console.log('[openFile] Trying cache without prefix:', pathWithoutPrefix);
+            content = await getFileContentFromCache(pathWithoutPrefix);
           }
         }
         
-        // Fallback to IndexedDB cache (Firefox or if File System read failed)
+        // Fallback to File objects if cache missed
         if (content === null) {
-          console.log('[openFile] Trying IndexedDB cache...');
-          const { getFileContentFromCache } = await import('@/lib/file-system');
-          content = await getFileContentFromCache(path);
+          const allFiles = fileSystemStore.allFiles;
+          console.log('[openFile] Cache miss, trying allFiles... (length:', allFiles.length, ')');
           
-          // Try with prefix variations
-          if (content === null && commonPrefix) {
-            if (!path.startsWith(commonPrefix + '/')) {
-              const pathWithPrefix = `${commonPrefix}/${path}`;
-              console.log('[openFile] Trying cache with prefix:', pathWithPrefix);
-              content = await getFileContentFromCache(pathWithPrefix);
-            } else {
-              const pathWithoutPrefix = path.slice(commonPrefix.length + 1);
-              console.log('[openFile] Trying cache without prefix:', pathWithoutPrefix);
-              content = await getFileContentFromCache(pathWithoutPrefix);
+          if (allFiles.length > 0) {
+            // Find the file in allFiles
+            let targetPath = path;
+            let file = allFiles.find(f => getFilePath(f) === targetPath);
+            
+            // Try with prefix variations
+            if (!file && commonPrefix) {
+              if (!path.startsWith(commonPrefix + '/')) {
+                targetPath = `${commonPrefix}/${path}`;
+                console.log('[openFile] Trying with prefix:', targetPath);
+                file = allFiles.find(f => getFilePath(f) === targetPath);
+              } else {
+                targetPath = path.slice(commonPrefix.length + 1);
+                console.log('[openFile] Trying without prefix:', targetPath);
+                file = allFiles.find(f => getFilePath(f) === targetPath);
+              }
+            }
+            
+            if (file) {
+              console.log('[openFile] ✓ Found file in allFiles, reading...');
+              content = await readFileAsText(file);
             }
           }
         }
@@ -431,7 +425,6 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         if (content === null) {
           console.error('[openFile] ❌ File not found in any source');
           console.error('[openFile] Path:', path);
-          console.error('[openFile] allFiles.length:', allFiles.length);
           console.error('[openFile] commonPrefix:', commonPrefix);
           throw new Error(ERROR_MESSAGES.FILE_NOT_FOUND(path));
         }

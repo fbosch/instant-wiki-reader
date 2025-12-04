@@ -45,12 +45,16 @@ function HomeContent() {
 
   // Restore state from URL on mount
   useEffect(() => {
-    if (!ctx.directoryTree) return;
+    // Wait for tree to be ready (files will be loaded on-demand if needed)
+    if (!ctx.directoryTree) {
+      console.log('[HomeContent] Waiting for directoryTree...');
+      return;
+    }
 
     const filePath = getFileFromUrl();
     const expandedDirs = getExpandedFromUrl();
 
-    console.log('[HomeContent] Restoring from URL:', { filePath, expandedDirs: Array.from(expandedDirs) });
+    console.log('[HomeContent] Restoring from URL:', { filePath, expandedDirs: Array.from(expandedDirs), allFilesCount: ctx.allFiles.length });
 
     // If there's a file path in URL, auto-expand parent directories
     if (filePath) {
@@ -61,7 +65,7 @@ function HomeContent() {
         setExpandedDirsValtio(dirsToExpand);
       }
 
-      // Open the file - use path exactly as stored in URL
+      // Open the file - openFile will fetch from cache/disk as needed
       if (ctx.currentFile?.path !== filePath) {
         console.log('[HomeContent] Opening file from URL:', filePath);
         setIsLoadingFromUrl(true);
@@ -81,7 +85,7 @@ function HomeContent() {
       setExpandedDirsValtio(expandedDirs);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.directoryTree]); // Only run when tree is loaded
+  }, [ctx.directoryTree]); // Only wait for tree
 
   // Handle hash scrolling when file content changes or hash changes
   useEffect(() => {
