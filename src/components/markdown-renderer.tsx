@@ -456,8 +456,16 @@ function preprocessMarkdown(
 
   // Convert Azure DevOps wiki Mermaid syntax (:::mermaid) to standard code fences
   // Matches: :::mermaid ... ::: or ::: mermaid ... :::
+  const mermaidMatches = content.match(/:::\s*mermaid\s*\n([\s\S]*?)\n:::/gi);
+  if (mermaidMatches) {
+    console.log('[preprocessMarkdown] Found', mermaidMatches.length, 'Mermaid blocks');
+  }
+  
   processed = processed.replace(/:::\s*mermaid\s*\n([\s\S]*?)\n:::/gi, (match, code) => {
-    return '```mermaid\n' + code.trim() + '\n```';
+    const converted = '```mermaid\n' + code.trim() + '\n```';
+    console.log('[preprocessMarkdown] Converting Mermaid block:', match.substring(0, 50) + '...');
+    console.log('[preprocessMarkdown] Converted to:', converted.substring(0, 50) + '...');
+    return converted;
   });
 
   // Fix headers without space after # symbols
@@ -671,7 +679,8 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
             }
 
             // Check for Mermaid diagrams
-            const isMermaid = className === "language-mermaid";
+            // className can be "language-mermaid" or "hljs language-mermaid" (with rehype-highlight)
+            const isMermaid = className?.includes("language-mermaid");
             console.log('[CodeBlock] className:', className, 'isMermaid:', isMermaid);
             if (isMermaid) {
               const code = String(children).replace(/\n$/, '');

@@ -11,9 +11,23 @@ import { DevTools } from '@/components/dev-tools';
 import { FolderOpen, FileText } from 'lucide-react';
 import { useUrlState } from '@/hooks/use-url-state';
 import { getParentDirs, formatFileName } from '@/lib/utils';
-import { useEffect, Suspense, useState, useCallback } from 'react';
+import { useEffect, Suspense, useState, useCallback, useSyncExternalStore } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import type { DirectoryNode } from '@/types';
+
+// Subscribe to hash changes for text fragment highlighting
+function subscribeToHashChanges(callback: () => void) {
+  window.addEventListener('hashchange', callback);
+  return () => window.removeEventListener('hashchange', callback);
+}
+
+function getHash() {
+  return window.location.hash;
+}
+
+function getServerHash() {
+  return '';
+}
 
 /**
  * Main content component that uses URL state.
@@ -27,6 +41,9 @@ function HomeContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [hasScrolledToHash, setHasScrolledToHash] = useState(false);
   const [isLoadingFromUrl, setIsLoadingFromUrl] = useState(false);
+  
+  // Subscribe to hash changes for reactive text fragment highlighting
+  const currentHash = useSyncExternalStore(subscribeToHashChanges, getHash, getServerHash);
 
   // Set up URL update callback
   useEffect(() => {
@@ -173,7 +190,7 @@ function HomeContent() {
     }, 100);
 
     return () => clearTimeout(timeoutId);
-  }, [ctx.currentFile, ctx.currentFile?.path, hasScrolledToHash]); // Run when file changes
+  }, [ctx.currentFile, ctx.currentFile?.path, currentHash]); // Run when file or hash changes
 
   // Keyboard shortcut for command palette (Cmd+Shift+F / Ctrl+Shift+F)
   useHotkeys('mod+shift+f', (e) => {
