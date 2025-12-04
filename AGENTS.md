@@ -237,35 +237,54 @@ if (condition) {
 
 ## Path Handling (CRITICAL)
 
-### NO Path Transformations
-- **NEVER strip, add, or modify path prefixes**
+### NO Path Transformations for Data Management
+- **NEVER strip, add, or modify path prefixes** when storing/managing paths
 - **Store paths exactly as they appear** in the File objects
 - **Use paths as-is** in URLs, cache keys, and lookups
-- **No "with prefix" or "without prefix" variations**
+- **No "with prefix" or "without prefix" variations** in storage
 
 ```typescript
-// ✅ GOOD - Use path exactly as-is
+// ✅ GOOD - Use path exactly as-is for data management
 const path = getFilePath(file);
-cache.set(path, content);
-openFile(path);
+cache.set(path, content);           // Store with exact path
+openFile(path);                      // Look up with exact path
+router.push(`?file=${path}`);        // URL with exact path
 
-// ❌ BAD - Transforming paths
+// ❌ BAD - Transforming paths for storage
 const displayPath = path.replace(prefix + '/', '');  // NO!
 const fullPath = prefix + '/' + path;                // NO!
-if (path.startsWith(prefix)) { /* variations */ }   // NO!
+cache.set(displayPath, content);                     // NO!
 ```
-
-**Why:** Path transformations cause mismatches between:
-- What's stored in cache vs what's looked up
-- What's in the URL vs what's in the file system
-- What the tree stores vs what's actually needed
 
 **The rule:** If `getFilePath(file)` returns `"dir/file.md"`, then:
 - Store in cache as: `"dir/file.md"`
 - Store in URL as: `"dir/file.md"`
 - Look up as: `"dir/file.md"`
 
-No exceptions. No transformations. Keep it simple.
+### Path Transformations ARE Allowed for Content Rendering
+When **rendering user content** (markdown, images), you may need to normalize paths from external sources:
+
+```typescript
+// ✅ GOOD - Normalizing search queries to match stored paths
+// Markdown references: /.attachments/image.png
+// Actual file path: WikiName/.attachments/image.png
+function findImage(files: File[], markdownPath: string): File | undefined {
+  const commonPrefix = detectCommonPrefix(files);
+  const normalizedPath = commonPrefix 
+    ? `${commonPrefix}/${markdownPath}` 
+    : markdownPath;
+  return files.find(f => getFilePath(f) === normalizedPath);
+}
+
+// ✅ GOOD - Resolving relative paths in markdown
+const resolvedPath = resolveImagePath('../../img.png', currentFile.path);
+```
+
+**Why the distinction:**
+- **Data management**: Paths must be consistent across storage, cache, URLs, and lookups
+- **Content rendering**: External references (markdown links/images) may not match our storage format and need normalization
+
+**Key principle:** Transform paths only when **converting external references to internal lookups**, never when managing our own data.
 
 ## When in Doubt
 

@@ -12,7 +12,7 @@
  * Safely extract a property from a file-like object
  * Handles Firefox quirks where getters may throw errors
  */
-function safeGetProperty<T>(obj: unknown, propName: string, defaultValue: T): T {
+function safePropertyAccess<T>(obj: unknown, propName: string, defaultValue: T): T {
   try {
     if (obj && typeof obj === 'object' && propName in obj) {
       const value = (obj as Record<string, unknown>)[propName];
@@ -71,7 +71,7 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
   }
   
   // Try webkitRelativePath
-  const webkitPath = safeGetProperty(file, 'webkitRelativePath', '');
+  const webkitPath = safePropertyAccess(file, 'webkitRelativePath', '');
   if (typeof webkitPath === 'string' && webkitPath.length > 0) {
     // Decode the path to ensure consistency
     try {
@@ -82,7 +82,7 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
   }
   
   // Fallback to name
-  const name = safeGetProperty(file, 'name', '');
+  const name = safePropertyAccess(file, 'name', '');
   if (typeof name === 'string' && name.length > 0) {
     // Decode the name to ensure consistency
     try {
@@ -117,118 +117,65 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
   return 'unknown-file';
 }
 
-/**
- * Detects the common root prefix in a set of file paths.
- * This is needed because browser-fs-access includes the root directory name
- * in webkitRelativePath, while native File System Access API may not.
- * 
- * @param files - Array of files to analyze
- * @returns Common root prefix or null if none detected
- */
-export function detectCommonRootPrefix(files: readonly ({ path: string; name: string } | File)[]): string | null {
-  if (files.length === 0) return null;
-  
-  const paths = files.map(f => getFilePath(f as any));
-  
-  // Get the first path segment from each path
-  const firstSegments = paths.map(p => p.split('/')[0]);
-  
-  // If all files share the same first segment and have multiple segments,
-  // that's our common root prefix
-  const firstSegment = firstSegments[0];
-  const allSamePrefix = firstSegments.every(s => s === firstSegment);
-  const hasMultipleSegments = paths.some(p => p.includes('/'));
-  
-  if (allSamePrefix && hasMultipleSegments) {
-    return firstSegment;
-  }
-  
-  return null;
-}
-
-/**
- * Gets the storage path from a file object
- * (webkitRelativePath or name)
- */
-function getStoragePath(file: { path?: string; name: string } | File): string {
-  return getFilePath(file as any);
-}
-
 type FileWithPath = { path: string; name: string } | File;
 
 /**
- * Converts a display path (without prefix) to a storage path (with prefix if needed)
- * 
- * @param files - Array of files
- * @param displayPath - Path as shown in UI (e.g., "Leasingportal/file.md")
- * @returns Storage path for file lookup (e.g., "KK-Laaneportal.wiki/Leasingportal/file.md")
+ * Detects the common root directory prefix from file paths
+ * Returns null if no common prefix exists
  */
-export function toStoragePath<T extends FileWithPath>(files: readonly T[], displayPath: string): string {
-  const prefix = detectCommonRootPrefix(files);
+function detectCommonPrefix(files: readonly FileWithPath[]): string | null {
+  if (files.length === 0) return null;
   
-  // If there's no common root prefix, display path === storage path
-  if (!prefix) {
-    return displayPath;
-  }
+  // Get first path segment from all files
+  const firstSegments = files.map(f => {
+    const path = getFilePath(f as File);
+    return path.split('/')[0];
+  });
   
-  // If path already starts with prefix, return as-is
-  if (displayPath.startsWith(prefix + '/')) {
-    return displayPath;
-  }
+  // Check if all files share the same first segment
+  const firstSegment = firstSegments[0];
+  const allSame = firstSegments.every(s => s === firstSegment);
   
-  // Add prefix
-  return `${prefix}/${displayPath}`;
+  // Only return as common prefix if all files share it AND there are nested paths
+  const hasNestedPaths = files.some(f => getFilePath(f as File).includes('/'));
+  
+  return allSame && hasNestedPaths ? firstSegment : null;
 }
 
 /**
- * Converts a storage path (with prefix) to a display path (without prefix)
+ * Finds a file by path with encoding/normalization fallbacks
+ * Handles URL encoding/decoding and Unicode normalization
+ * Automatically prepends common root prefix if search path is missing it
  * 
  * @param files - Array of files
- * @param storagePath - Path as stored in files (e.g., "KK-Laaneportal.wiki/Leasingportal/file.md")
- * @returns Display path for UI (e.g., "Leasingportal/file.md")
- */
-export function toDisplayPath<T extends FileWithPath>(files: readonly T[], storagePath: string): string {
-  const prefix = detectCommonRootPrefix(files);
-  
-  // If there's no common root prefix, display path === storage path
-  if (!prefix) {
-    return storagePath;
-  }
-  
-  // If path starts with prefix, strip it
-  const prefixWithSlash = prefix + '/';
-  if (storagePath.startsWith(prefixWithSlash)) {
-    return storagePath.slice(prefixWithSlash.length);
-  }
-  
-  // Otherwise return as-is
-  return storagePath;
-}
-
-/**
- * Finds a file by display path
- * Handles URL encoding/decoding and prefix normalization
- * 
- * @param files - Array of files
- * @param displayPath - Path as shown in UI
+ * @param searchPath - Path to search for
  * @returns File object or undefined if not found
  */
-export function getFileByDisplayPath<T extends FileWithPath>(files: readonly T[], displayPath: string): T | undefined {
-  const prefix = detectCommonRootPrefix(files);
-  const storagePath = toStoragePath(files, displayPath);
+export function getFileByDisplayPath<T extends FileWithPath>(files: readonly T[], searchPath: string): T | undefined {
+  // Detect common prefix and normalize search path if needed
+  const commonPrefix = detectCommonPrefix(files);
+  const pathsToTry: string[] = [searchPath];
   
-  // Helper to try matching with various encoding variations and normalizations
-  const tryMatch = (file: T, searchPath: string): boolean => {
-    const filePath = getFilePath(file as any);
+  // If there's a common prefix and search path doesn't include it, add it as a variant
+  if (commonPrefix && !searchPath.startsWith(commonPrefix + '/') && !searchPath.startsWith(commonPrefix)) {
+    pathsToTry.push(`${commonPrefix}/${searchPath}`);
+  }
+  
+  // Helper to try matching with encoding variations
+  const tryMatch = (file: T, path: string): boolean => {
+    const filePath = getFilePath(file as File);
     
     // Direct match
-    if (filePath === searchPath) return true;
+    if (filePath === path) return true;
     
     // Try URL encoding/decoding variations
     try {
-      if (decodeURIComponent(filePath) === searchPath) return true;
-      if (filePath === decodeURIComponent(searchPath)) return true;
-      if (decodeURIComponent(filePath) === decodeURIComponent(searchPath)) return true;
+      const decodedFilePath = decodeURIComponent(filePath);
+      const decodedPath = decodeURIComponent(path);
+      
+      if (decodedFilePath === path) return true;
+      if (filePath === decodedPath) return true;
+      if (decodedFilePath === decodedPath) return true;
     } catch (e) {
       // Ignore encoding errors
     }
@@ -236,10 +183,15 @@ export function getFileByDisplayPath<T extends FileWithPath>(files: readonly T[]
     // Try Unicode normalization (for characters like æ, ø, å)
     try {
       const normalizedFilePath = filePath.normalize('NFC');
-      const normalizedSearchPath = searchPath.normalize('NFC');
+      const normalizedSearchPath = path.normalize('NFC');
+      
       if (normalizedFilePath === normalizedSearchPath) return true;
-      if (decodeURIComponent(normalizedFilePath) === normalizedSearchPath) return true;
-      if (normalizedFilePath === decodeURIComponent(normalizedSearchPath)) return true;
+      
+      const decodedNormalizedFile = decodeURIComponent(normalizedFilePath);
+      const decodedNormalizedSearch = decodeURIComponent(normalizedSearchPath);
+      
+      if (decodedNormalizedFile === normalizedSearchPath) return true;
+      if (normalizedFilePath === decodedNormalizedSearch) return true;
     } catch (e) {
       // Ignore normalization errors
     }
@@ -247,40 +199,19 @@ export function getFileByDisplayPath<T extends FileWithPath>(files: readonly T[]
     return false;
   };
   
-  // Try finding by storage path
-  let found = files.find(f => tryMatch(f, storagePath));
-  if (found) return found;
-  
-  // Try finding by display path directly
-  found = files.find(f => tryMatch(f, displayPath));
-  if (found) return found;
-  
-  // Try with decoded display path
-  try {
-    const decodedDisplay = decodeURIComponent(displayPath);
-    found = files.find(f => tryMatch(f, decodedDisplay));
+  // Try all path variations
+  for (const pathToTry of pathsToTry) {
+    const found = files.find(f => tryMatch(f, pathToTry));
     if (found) return found;
-  } catch (e) {
-    // Ignore
   }
   
-  // Not found - log minimal info for debugging
+  // Not found - log for debugging
   if (process.env.NODE_ENV === 'development') {
-    console.error('[PathManager] File not found:', displayPath);
-    console.error('[PathManager] Prefix:', prefix, '| Files:', files.length);
+    console.error('[PathManager] File not found:', searchPath);
+    if (commonPrefix) {
+      console.error('[PathManager] Also tried with prefix:', `${commonPrefix}/${searchPath}`);
+    }
   }
   
   return undefined;
-}
-
-/**
- * Normalizes a file path from a File object to display path
- * 
- * @param files - Array of files (needed to detect prefix)
- * @param file - File object
- * @returns Display path (without prefix)
- */
-export function normalizeFilePath<T extends FileWithPath>(files: readonly T[], file: T): string {
-  const storagePath = getFilePath(file as any);
-  return toDisplayPath(files, storagePath);
 }
