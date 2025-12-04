@@ -4,7 +4,9 @@ import React from 'react';
 import { useTreeData } from 'react-stately';
 import { useFocusRing } from '@react-aria/focus';
 import { mergeProps } from '@react-aria/utils';
+import { useSnapshot } from 'valtio';
 import { useFileSystem } from '@/contexts/FileSystemContext';
+import { uiStore, toggleExpandDir, setCurrentWiki } from '@/store/ui-store';
 import { File, Folder, FolderOpen, ChevronRight } from 'lucide-react';
 import { formatFileName } from '@/lib/utils';
 import type { DirectoryNode } from '@/types';
@@ -141,29 +143,44 @@ function FileTreeItem({
   tree, 
   node, 
   level = 0,
-  expandedKeys,
-  onToggleExpand,
   searchQuery = '',
-}: FileTreeItemProps) {
+}: {
+  item: DirectoryNode;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tree: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  node: any;
+  level?: number;
+  searchQuery?: string;
+}) {
   const { openFile, currentFile } = useFileSystem();
+  const { currentWiki, wikiStates } = useSnapshot(uiStore);
   const ref = React.useRef<HTMLDivElement>(null);
   const { focusProps } = useFocusRing();
 
+  // Get expanded dirs for current wiki
+  const expandedDirs = currentWiki && wikiStates.has(currentWiki) 
+    ? wikiStates.get(currentWiki)!.expandedDirs 
+    : new Set<string>();
+
   const isSelected = tree.selectedKeys?.has(node.key) ?? false;
-  // Use item.isExpanded from filtered tree if set, otherwise check expandedKeys
-  const isExpanded = item.isExpanded ?? expandedKeys.has(node.key);
+  // When searching, auto-expand if item.isExpanded is true, but manual toggles override
+  const isExpanded = expandedDirs.has(node.key) || (searchQuery && item.isExpanded === true);
   const hasChildren = node.children && node.children.length > 0;
   const isCurrentFile = currentFile?.path === item.path;
 
   const handleClick = () => {
+    console.log('[FileTreeItem] Clicked:', item.name, 'Type:', item.type, 'Path:', item.path, 'Node key:', node.key);
+    
     if (item.type === 'file') {
       openFile(item.path).catch((error) => {
         console.error('Failed to open file:', item.path, error);
       });
       tree.setSelectedKeys(new Set([node.key]));
     } else {
-      // For directories, expand and open index file if it exists
-      onToggleExpand(node.key);
+      // For directories, toggle expansion and open index file if it exists
+      console.log('[FileTreeItem] Toggling directory:', node.key);
+      toggleExpandDir(node.key);
       if (item.indexFile) {
         openFile(item.indexFile).catch((error) => {
           console.error('Failed to open index file:', item.indexFile, error);
@@ -222,8 +239,6 @@ function FileTreeItem({
               tree={tree} 
               node={childNode} 
               level={level + 1}
-              expandedKeys={expandedKeys}
-              onToggleExpand={onToggleExpand}
               searchQuery={searchQuery}
             />
           ))}
@@ -234,27 +249,17 @@ function FileTreeItem({
 }
 
 export function FileTree({ tree: treeOverride, searchQuery = '' }: { tree?: DirectoryNode | null; searchQuery?: string } = {}) {
-  const { directoryTree, selectedNode, expandedDirs, setExpandedDirs } = useFileSystem();
+  const { directoryTree, selectedNode } = useFileSystem();
   
   // Use override tree if provided, otherwise use context tree
   const activeTree = treeOverride !== undefined ? treeOverride : directoryTree;
 
   const tree = useTreeData({
-    initialItems: activeTree?.children || [],
+    initialItems: activeTree?.children ? [...activeTree.children] : [],
     getKey: (item) => item.path,
-    getChildren: (item) => item.children || [],
+    getChildren: (item) => item.children ? [...item.children] : [],
     initialSelectedKeys: selectedNode ? [selectedNode.path] : [],
   });
-
-  const handleToggleExpand = (key: string) => {
-    const next = new Set(expandedDirs);
-    if (next.has(key)) {
-      next.delete(key);
-    } else {
-      next.add(key);
-    }
-    setExpandedDirs(next);
-  };
 
   if (!activeTree?.children) {
     return (
@@ -270,11 +275,9 @@ export function FileTree({ tree: treeOverride, searchQuery = '' }: { tree?: Dire
         {tree.items.map((node) => (
           <FileTreeItem 
             key={node.key} 
-            item={node.value} 
+            item={node.value as DirectoryNode} 
             tree={tree} 
             node={node}
-            expandedKeys={expandedDirs}
-            onToggleExpand={handleToggleExpand}
             searchQuery={searchQuery}
           />
         ))}

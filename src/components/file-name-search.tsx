@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useDeferredValue } from 'react';
-import { Search, X, Loader2 } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import type { DirectoryNode } from '@/types';
 
 interface FileNameSearchProps {
@@ -95,28 +95,45 @@ export function FileNameSearch({ tree, onFilter }: FileNameSearchProps) {
     };
   }, [tree, deferredQuery]);
 
-  // Notify parent of filter changes (during render)
-  // This is safe because onFilter just updates parent state
-  onFilter(filteredTree, deferredQuery.trim());
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newQuery = e.target.value;
+    setQuery(newQuery);
+    
+    // Calculate filtered tree and notify parent immediately
+    // This happens in the event handler, not during render
+    const trimmedQuery = newQuery.trim();
+    if (!tree || !trimmedQuery) {
+      onFilter(null, trimmedQuery);
+    } else {
+      // We need to compute the filtered tree here since deferredQuery hasn't updated yet
+      if (!tree.children) {
+        onFilter(tree, trimmedQuery);
+      } else {
+        const filteredChildren = tree.children
+          .map(child => filterTree(child, trimmedQuery))
+          .filter((child): child is DirectoryNode => child !== null);
+        
+        onFilter({
+          ...tree,
+          children: filteredChildren,
+        }, trimmedQuery);
+      }
+    }
+  };
 
   const handleClear = () => {
     setQuery('');
+    onFilter(null, '');
   };
-
-  const isSearching = query !== deferredQuery;
 
   return (
     <div className="relative">
       <div className="relative flex items-center">
-        {isSearching ? (
-          <Loader2 className="absolute left-3 w-4 h-4 text-blue-500 animate-spin pointer-events-none" />
-        ) : (
-          <Search className="absolute left-3 w-4 h-4 text-slate-400 pointer-events-none" />
-        )}
+        <Search className="absolute left-3 w-4 h-4 text-slate-400 pointer-events-none" />
         <input
           type="text"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={handleChange}
           placeholder="Filter files..."
           className="w-full pl-9 pr-9 py-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-50 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
         />

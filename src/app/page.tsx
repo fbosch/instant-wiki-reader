@@ -1,6 +1,7 @@
 'use client';
 
 import { useFileSystem } from '@/contexts/FileSystemContext';
+import { setCurrentWiki, setExpandedDirs as setExpandedDirsValtio } from '@/store/ui-store';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { TableOfContents } from '@/components/table-of-contents';
 import { FileTree } from '@/components/file-tree';
@@ -32,6 +33,13 @@ function HomeContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
+  // Set current wiki in Valtio store when directory changes
+  useEffect(() => {
+    if (ctx.wikiName) {
+      setCurrentWiki(ctx.wikiName);
+    }
+  }, [ctx.wikiName]);
+
   // Restore state from URL on mount
   useEffect(() => {
     if (!ctx.directoryTree) return;
@@ -45,7 +53,7 @@ function HomeContent() {
       const dirsToExpand = new Set([...expandedDirs, ...parentDirs]);
       
       if (dirsToExpand.size > 0) {
-        ctx.setExpandedDirs(dirsToExpand);
+        setExpandedDirsValtio(dirsToExpand);
       }
 
       // Open the file
@@ -56,7 +64,7 @@ function HomeContent() {
       }
     } else if (expandedDirs.size > 0) {
       // Only restore expanded directories if no file path
-      ctx.setExpandedDirs(expandedDirs);
+      setExpandedDirsValtio(expandedDirs);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.directoryTree]); // Only run when tree is loaded
@@ -154,7 +162,7 @@ function HomeContent() {
           </div>
           
           {/* Filename search bar */}
-          <FileNameSearch tree={ctx.directoryTree} onFilter={handleFilterTree} />
+          <FileNameSearch tree={ctx.directoryTree as DirectoryNode | null} onFilter={handleFilterTree} />
           
           {/* Hint for content search */}
           <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 text-center">
@@ -165,7 +173,7 @@ function HomeContent() {
         <div className="flex-1 overflow-y-auto">
           <FileTree 
             key={searchQuery || 'no-search'} 
-            tree={filteredTree || ctx.directoryTree} 
+            tree={(filteredTree || ctx.directoryTree) as DirectoryNode | null} 
             searchQuery={searchQuery} 
           />
         </div>

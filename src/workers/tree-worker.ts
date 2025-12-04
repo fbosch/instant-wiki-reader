@@ -1,9 +1,11 @@
 /**
  * Web Worker for CPU-intensive directory tree operations.
  * Uses Comlink for seamless RPC-style communication with main thread.
+ * Accesses IndexedDB directly to avoid serialization overhead.
  */
 
 import { expose } from 'comlink';
+import { get } from 'idb-keyval';
 import type { DirectoryNode } from '@/types';
 
 /**
@@ -18,13 +20,56 @@ interface SerializableFile {
 }
 
 /**
+ * Cached file structure from IndexedDB
+ */
+interface CachedFile {
+  name: string;
+  path: string;
+  size: number;
+  lastModified: number;
+  content: ArrayBuffer;
+}
+
+const CACHED_FILES_KEY = 'wiki-cached-files';
+
+/**
+ * Build a directory tree from cached files in IndexedDB.
+ * This method loads from IndexedDB directly, avoiding serialization.
+ * 
+ * @returns Root directory node with nested children
+ */
+async function buildDirectoryTreeFromCache(): Promise<DirectoryNode> {
+  const cachedFiles = await get<CachedFile[]>(CACHED_FILES_KEY);
+  
+  if (!cachedFiles || cachedFiles.length === 0) {
+    return {
+      name: 'root',
+      path: '',
+      type: 'dir',
+      children: [],
+      isExpanded: true,
+    };
+  }
+  
+  // Convert to SerializableFile format
+  const files: SerializableFile[] = cachedFiles.map((cached) => ({
+    name: cached.name,
+    path: cached.path,
+    size: cached.size,
+    lastModified: cached.lastModified,
+  }));
+  
+  return buildDirectoryTreeFromFiles(files);
+}
+
+/**
  * Build a directory tree from a flat list of files.
  * Uses sorting for O(n log n) performance instead of nested lookups (O(n²)).
  * 
  * @param files - Array of serializable file objects
  * @returns Root directory node with nested children
  */
-function buildDirectoryTree(files: SerializableFile[]): DirectoryNode {
+function buildDirectoryTreeFromFiles(files: SerializableFile[]): DirectoryNode {
   const root: DirectoryNode = {
     name: 'root',
     path: '',
@@ -188,7 +233,8 @@ function filterMarkdownFiles(files: SerializableFile[]): SerializableFile[] {
 
 // Worker API
 const workerApi = {
-  buildDirectoryTree,
+  buildDirectoryTree: buildDirectoryTreeFromFiles,
+  buildDirectoryTreeFromCache,
   searchFiles,
   filterMarkdownFiles,
 };

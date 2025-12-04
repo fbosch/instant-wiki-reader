@@ -2,28 +2,32 @@ import { directoryOpen } from 'browser-fs-access';
 import { get, set, del } from 'idb-keyval';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { DirectoryNode, FileMeta } from '@/types';
+import { getFilePath } from '@/lib/path-manager';
 
 const DIRECTORY_HANDLE_KEY = 'wiki-directory-handle';
-const CACHED_FILES_KEY = 'wiki-cached-files';
 const CACHED_WIKI_NAME_KEY = 'wiki-cached-name';
 const FILE_CONTENTS_DB_NAME = 'wiki-file-contents';
-const FILE_CONTENTS_DB_VERSION = 1;
+const FILE_CONTENTS_DB_VERSION = 3;
 
 /**
- * Serializable file data for caching
+ * File metadata for tree rendering (lightweight)
  */
-interface CachedFile {
-  name: string;
+export interface FileMetadata {
   path: string;
+  name: string;
   size: number;
   lastModified: number;
-  content: ArrayBuffer;
+  type: string;
 }
 
 /**
- * IndexedDB schema for file contents (accessible from workers)
+ * IndexedDB schema with separate stores for metadata and contents
  */
 interface FileContentsDB extends DBSchema {
+  'metadata': {
+    key: string; // file path
+    value: FileMetadata;
+  };
   'contents': {
     key: string; // file path
     value: {
@@ -35,14 +39,22 @@ interface FileContentsDB extends DBSchema {
 }
 
 /**
- * Get or create the file contents database (accessible from workers)
+ * Get or create the file contents database with separate metadata and contents stores
  */
 export async function getFileContentsDB(): Promise<IDBPDatabase<FileContentsDB>> {
   return openDB<FileContentsDB>(FILE_CONTENTS_DB_NAME, FILE_CONTENTS_DB_VERSION, {
-    upgrade(db) {
+    upgrade(db, oldVersion) {
+      // Create metadata store for lightweight file info (tree rendering)
+      if (!db.objectStoreNames.contains('metadata')) {
+        db.createObjectStore('metadata', { keyPath: 'path' });
+      }
+      
+      // Create/update contents store for file text content (on-demand loading)
       if (!db.objectStoreNames.contains('contents')) {
         db.createObjectStore('contents', { keyPath: 'path' });
       }
+      
+      console.log(`[IndexedDB] Upgraded from version ${oldVersion} to ${FILE_CONTENTS_DB_VERSION}`);
     },
   });
 }
@@ -168,53 +180,54 @@ export async function clearDirectoryHandle(): Promise<void> {
 
 /**
  * Save files to IndexedDB cache (for Firefox/browsers without File System Access API).
- * Stores file metadata and content for offline access.
+ * Stores metadata in one store (for fast tree building) and contents in another (for on-demand loading).
  * 
  * @param files - Array of files to cache
  * @param wikiName - Name of the wiki for display
  */
 export async function cacheFiles(files: File[], wikiName: string): Promise<void> {
   try {
-    // Cache file metadata using idb-keyval
-    const cachedFiles: CachedFile[] = await Promise.all(
-      files.map(async (file) => {
-        const content = await file.arrayBuffer();
-        return {
-          name: file.name,
-          path: file.webkitRelativePath || file.name,
-          size: file.size,
-          lastModified: file.lastModified,
-          content,
-        };
-      })
-    );
-    
-    await set(CACHED_FILES_KEY, cachedFiles);
     await set(CACHED_WIKI_NAME_KEY, wikiName);
     
-    // Also cache text content in separate DB for search worker access
     const db = await getFileContentsDB();
-    const tx = db.transaction('contents', 'readwrite');
     
-    await Promise.all(
-      files.map(async (file) => {
-        // Only cache text files (markdown)
-        if (!file.name.endsWith('.md') && !file.name.endsWith('.markdown')) {
-          return;
-        }
-        
-        const content = await file.text();
-        await tx.store.put({
-          path: file.webkitRelativePath || file.name,
-          content,
-          lastModified: file.lastModified,
-        });
-      })
-    );
+    // Write metadata first
+    const metadataTx = db.transaction('metadata', 'readwrite');
+    for (const file of files) {
+      const path = getFilePath(file);
+      const metadata: FileMetadata = {
+        path,
+        name: file.name,
+        size: file.size,
+        lastModified: file.lastModified,
+        type: file.type,
+      };
+      metadataTx.store.put(metadata);
+    }
+    await metadataTx.done;
     
-    await tx.done;
+    // Write contents for markdown files
+    const contentsTx = db.transaction('contents', 'readwrite');
+    let mdFilesCount = 0;
+    for (const file of files) {
+      // Only cache text files (markdown)
+      if (!file.name.endsWith('.md') && !file.name.endsWith('.markdown')) {
+        continue;
+      }
+      
+      const path = getFilePath(file);
+      const content = await file.text();
+      console.log('[cacheFiles] Caching content for path:', path);
+      contentsTx.store.put({
+        path,
+        content,
+        lastModified: file.lastModified,
+      });
+      mdFilesCount++;
+    }
+    await contentsTx.done;
     
-    console.log(`[cacheFiles] Cached ${cachedFiles.length} files`);
+    console.log(`[cacheFiles] Cached ${files.length} files metadata, ${mdFilesCount} markdown file contents`);
   } catch (error) {
     console.error('Failed to cache files:', error);
     // Don't throw - caching is optional
@@ -222,39 +235,33 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
 }
 
 /**
- * Load cached files from IndexedDB (for Firefox/browsers without File System Access API).
+ * Load cached file metadata from IndexedDB (for Firefox/browsers without File System Access API).
+ * Returns lightweight metadata suitable for building directory tree.
  * 
- * @returns Object with files array and wiki name, or null if no cache exists
+ * @returns Object with file metadata array and wiki name, or null if no cache exists
  */
-export async function loadCachedFiles(): Promise<{ files: File[]; wikiName: string } | null> {
+export async function loadCachedFileMetadata(): Promise<{ 
+  files: FileMetadata[]; 
+  wikiName: string;
+} | null> {
   try {
-    const cachedFiles = await get<CachedFile[]>(CACHED_FILES_KEY);
     const wikiName = await get<string>(CACHED_WIKI_NAME_KEY);
     
-    if (!cachedFiles || !wikiName) {
+    if (!wikiName) {
       return null;
     }
     
-    const files = cachedFiles.map((cached: CachedFile) => {
-      const file = new File([cached.content], cached.name, {
-        lastModified: cached.lastModified,
-      });
-      
-      // Add webkitRelativePath property
-      Object.defineProperty(file, 'webkitRelativePath', {
-        value: cached.path,
-        writable: false,
-        enumerable: true,
-        configurable: true,
-      });
-      
-      return file;
-    });
+    const db = await getFileContentsDB();
+    const allMetadata = await db.getAll('metadata');
     
-    console.log(`[loadCachedFiles] Loaded ${files.length} cached files`);
-    return { files, wikiName };
+    if (!allMetadata || allMetadata.length === 0) {
+      return null;
+    }
+    
+    console.log(`[loadCachedFileMetadata] Loaded metadata for ${allMetadata.length} files`);
+    return { files: allMetadata, wikiName };
   } catch (error) {
-    console.error('Failed to load cached files:', error);
+    console.error('Failed to load cached file metadata:', error);
     return null;
   }
 }
@@ -264,11 +271,11 @@ export async function loadCachedFiles(): Promise<{ files: File[]; wikiName: stri
  */
 export async function clearCachedFiles(): Promise<void> {
   try {
-    await del(CACHED_FILES_KEY);
     await del(CACHED_WIKI_NAME_KEY);
     
-    // Also clear the file contents DB
+    // Clear both stores in the file contents DB
     const db = await getFileContentsDB();
+    await db.clear('metadata');
     await db.clear('contents');
   } catch (error) {
     console.error('Failed to clear cached files:', error);
@@ -276,13 +283,16 @@ export async function clearCachedFiles(): Promise<void> {
 }
 
 /**
- * Build a directory tree from a flat list of files.
+ * Build a directory tree from file metadata (lightweight, memory-efficient).
  * Uses sorting for O(n log n) performance instead of nested lookups (O(n²)).
+ * Stores FULL paths in nodes - prefix is only stripped for display.
  * 
- * @param files - Array of File objects with webkitRelativePath property
+ * @param metadata - Array of file metadata objects with path property
  * @returns Root directory node with nested children and common root prefix info
  */
-export function buildDirectoryTree(files: File[]): DirectoryNode & { _commonRootPrefix?: string } {
+export function buildDirectoryTreeFromMetadata(
+  metadata: Array<{ path: string; name: string }>
+): DirectoryNode & { _commonRootPrefix?: string } {
   const root: DirectoryNode & { _commonRootPrefix?: string } = {
     name: 'root',
     path: '',
@@ -291,60 +301,55 @@ export function buildDirectoryTree(files: File[]): DirectoryNode & { _commonRoot
     isExpanded: true,
   };
 
-  if (files.length === 0) {
+  if (metadata.length === 0) {
     return root;
   }
 
   // Sort files by path for efficient tree building
-  const sortedFiles = [...files].sort((a, b) => {
-    const pathA = a.webkitRelativePath || a.name;
-    const pathB = b.webkitRelativePath || b.name;
-    return pathA.localeCompare(pathB);
-  });
+  const sortedFiles = [...metadata].sort((a, b) => a.path.localeCompare(b.path));
 
   // Detect if all paths share a common root directory (from browser-fs-access)
-  // If they do, we'll skip it to avoid showing the selected directory itself
-  let commonRootToSkip: string | null = null;
-  const firstPath = sortedFiles[0].webkitRelativePath || sortedFiles[0].name;
+  // We'll store this but NOT strip it from paths - only use for display
+  let commonRootPrefix: string | null = null;
+  const firstPath = sortedFiles[0].path;
   const firstParts = firstPath.split('/');
   
   if (firstParts.length > 1) {
     // Check if all files share the same first path segment
     const potentialRoot = firstParts[0];
     const allShareRoot = sortedFiles.every((file) => {
-      const path = file.webkitRelativePath || file.name;
-      return path.startsWith(potentialRoot + '/') || path === potentialRoot;
+      return file.path.startsWith(potentialRoot + '/') || file.path === potentialRoot;
     });
     
     if (allShareRoot) {
-      commonRootToSkip = potentialRoot;
-      // Store the common root prefix in the tree for later use
+      commonRootPrefix = potentialRoot;
+      // Store the common root prefix in the tree for display purposes only
       root._commonRootPrefix = potentialRoot;
     }
   }
 
   for (const file of sortedFiles) {
-    let relativePath = file.webkitRelativePath || file.name;
+    const fullPath = file.path; // Keep full path unchanged
     
-    // Strip common root if detected
-    if (commonRootToSkip && relativePath.startsWith(commonRootToSkip + '/')) {
-      relativePath = relativePath.slice(commonRootToSkip.length + 1);
-    } else if (commonRootToSkip && relativePath === commonRootToSkip) {
+    // For tree building, we need to work without the common prefix
+    // to avoid duplicating the root directory in the tree structure
+    let pathForTreeBuilding = fullPath;
+    if (commonRootPrefix && fullPath.startsWith(commonRootPrefix + '/')) {
+      pathForTreeBuilding = fullPath.slice(commonRootPrefix.length + 1);
+    } else if (commonRootPrefix && fullPath === commonRootPrefix) {
       // Skip the root directory itself if it appears as a file
       continue;
     }
     
-    const parts = relativePath.split('/');
+    const parts = pathForTreeBuilding.split('/');
     
     let currentNode = root;
-    let currentPath = '';
 
-    // Build path for each part
+    // Build tree hierarchy
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
       const isLastPart = i === parts.length - 1;
-      currentPath = currentPath ? `${currentPath}/${part}` : part;
-
+      
       // Ensure children array exists
       if (!currentNode.children) {
         currentNode.children = [];
@@ -354,9 +359,19 @@ export function buildDirectoryTree(files: File[]): DirectoryNode & { _commonRoot
       let existingNode = currentNode.children.find((child) => child.name === part);
 
       if (!existingNode) {
+        // Calculate the full path for this node by taking a slice from the original fullPath
+        // For file "Wiki.wiki/dir/subdir/file.md" with parts ["dir", "subdir", "file.md"]
+        // At i=0 (dir): path should be "Wiki.wiki/dir"
+        // At i=1 (subdir): path should be "Wiki.wiki/dir/subdir"
+        // At i=2 (file.md): path should be "Wiki.wiki/dir/subdir/file.md"
+        const pathSegmentsFromRoot = parts.slice(0, i + 1);
+        const nodePath = commonRootPrefix 
+          ? `${commonRootPrefix}/${pathSegmentsFromRoot.join('/')}`
+          : pathSegmentsFromRoot.join('/');
+        
         existingNode = {
           name: part,
-          path: currentPath,
+          path: nodePath, // Store FULL path including common root
           type: isLastPart ? 'file' : 'dir',
           children: isLastPart ? undefined : [],
           isExpanded: false,
@@ -391,7 +406,7 @@ export function buildDirectoryTree(files: File[]): DirectoryNode & { _commonRoot
         
         if (matchingDir) {
           // Merge: make this file the index of the directory
-          matchingDir.indexFile = child.path;
+          matchingDir.indexFile = child.path; // Use FULL path
           // Mark file for removal from tree (it shouldn't show separately)
           filesToRemove.add(child);
         }
@@ -417,6 +432,23 @@ export function buildDirectoryTree(files: File[]): DirectoryNode & { _commonRoot
 }
 
 /**
+ * Build a directory tree from a flat list of files.
+ * Uses sorting for O(n log n) performance instead of nested lookups (O(n²)).
+ * 
+ * @param files - Array of File objects with webkitRelativePath property
+ * @returns Root directory node with nested children and common root prefix info
+ */
+export function buildDirectoryTree(files: File[]): DirectoryNode & { _commonRootPrefix?: string } {
+  // Convert File objects to metadata and delegate to buildDirectoryTreeFromMetadata
+  const metadata = files.map(file => ({
+    path: getFilePath(file),
+    name: file.name,
+  }));
+  
+  return buildDirectoryTreeFromMetadata(metadata);
+}
+
+/**
  * Extract file metadata from a File object.
  * 
  * @param file - File object to extract metadata from
@@ -424,7 +456,7 @@ export function buildDirectoryTree(files: File[]): DirectoryNode & { _commonRoot
  */
 export function extractFileMeta(file: File): FileMeta {
   const { name, size, lastModified } = file;
-  const path = file.webkitRelativePath || name;
+  const path = getFilePath(file);
   const extension = name.includes('.') ? name.substring(name.lastIndexOf('.')) : '';
 
   return {
@@ -456,7 +488,7 @@ export function filterMarkdownFiles(files: File[]): File[] {
  * Handles both URL-encoded and decoded path formats.
  * 
  * @param files - Array of files to search
- * @param path - Path to match against webkitRelativePath or name (can be URL-encoded or decoded)
+ * @param path - Path to match (can be URL-encoded or decoded)
  * @returns File if found, undefined otherwise
  */
 export function getFileByPath(files: File[], path: string): File | undefined {
@@ -470,7 +502,7 @@ export function getFileByPath(files: File[], path: string): File | undefined {
   }
   
   const found = files.find((file) => {
-    const filePath = file.webkitRelativePath || file.name;
+    const filePath = getFilePath(file);
     
     // Try exact match first
     if (filePath === path) return true;
@@ -492,7 +524,7 @@ export function getFileByPath(files: File[], path: string): File | undefined {
   if (!found) {
     console.error(`[getFileByPath] File not found: "${path}"`);
     console.error(`[getFileByPath] Decoded path: "${decodedPath}"`);
-    console.error(`[getFileByPath] Available files (first 10):`, files.slice(0, 10).map(f => f.webkitRelativePath || f.name));
+    console.error(`[getFileByPath] Available files (first 10):`, files.slice(0, 10).map(f => getFilePath(f)));
   }
 
   return found;
@@ -614,12 +646,57 @@ export async function getWikiNameFromGit(
 }
 
 /**
- * Read file contents as text.
+ * Get file content directly from IndexedDB by path.
+ * Used for cached files in Firefox/Safari.
  * 
- * @param file - File to read
+ * @param path - File path (webkitRelativePath)
+ * @returns File content as string, or null if not found
+ */
+export async function getFileContentFromCache(path: string): Promise<string | null> {
+  try {
+    console.log('[getFileContentFromCache] Looking up path:', path);
+    const db = await getFileContentsDB();
+    const cached = await db.get('contents', path);
+    
+    if (cached && cached.content) {
+      console.log('[getFileContentFromCache] Found content for:', path);
+      return cached.content;
+    }
+    
+    console.log('[getFileContentFromCache] No content found for:', path);
+    
+    // Debug: List all keys in contents store
+    const allKeys = await db.getAllKeys('contents');
+    console.log('[getFileContentFromCache] Available keys in contents store:', allKeys);
+    
+    return null;
+  } catch (error) {
+    console.error('[getFileContentFromCache] Error:', error);
+    return null;
+  }
+}
+
+/**
+ * Read file contents as text.
+ * First tries to get from IndexedDB cache (for Firefox/Safari cached files),
+ * then falls back to FileReader for live files.
+ * 
+ * @param file - File to read (can be a real File or reconstructed from cache)
+ * @param path - Optional path to use for IndexedDB lookup
  * @returns Promise resolving to file content as string
  */
-export async function readFileAsText(file: File): Promise<string> {
+export async function readFileAsText(file: File, path?: string): Promise<string> {
+  const filePath = path || getFilePath(file);
+  
+  // First try to get from IndexedDB if this might be a cached file
+  const cachedContent = await getFileContentFromCache(filePath);
+  if (cachedContent !== null) {
+    console.log('[readFileAsText] Using cached content from IndexedDB for:', filePath);
+    return cachedContent;
+  }
+  
+  // Fall back to FileReader for live files
+  console.log('[readFileAsText] Reading file with FileReader:', filePath);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);

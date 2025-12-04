@@ -9,6 +9,29 @@
  */
 
 /**
+ * Gets the path from a File object or metadata object
+ * Works cross-browser without relying on webkit-specific APIs directly
+ * 
+ * @param fileOrMeta - File object or metadata object with path property
+ * @returns Path string
+ */
+export function getFilePath(fileOrMeta: File | { path: string; name?: string }): string {
+  // If it's a metadata object with path property
+  if ('path' in fileOrMeta && typeof fileOrMeta.path === 'string') {
+    return fileOrMeta.path;
+  }
+  
+  // If it's a File object, try webkitRelativePath (cross-browser support)
+  const file = fileOrMeta as File;
+  if ('webkitRelativePath' in file && file.webkitRelativePath) {
+    return file.webkitRelativePath;
+  }
+  
+  // Fallback to name
+  return file.name;
+}
+
+/**
  * Detects the common root prefix in a set of file paths.
  * This is needed because browser-fs-access includes the root directory name
  * in webkitRelativePath, while native File System Access API may not.
@@ -16,7 +39,7 @@
  * @param files - Array of files to analyze
  * @returns Common root prefix or null if none detected
  */
-export function detectCommonRootPrefix(files: File[]): string | null {
+export function detectCommonRootPrefix(files: readonly File[]): string | null {
   if (files.length === 0) return null;
   
   const paths = files.map(f => f.webkitRelativePath || f.name);
@@ -52,7 +75,7 @@ function getStoragePath(file: File): string {
  * @param displayPath - Path as shown in UI (e.g., "Leasingportal/file.md")
  * @returns Storage path for file lookup (e.g., "KK-Laaneportal.wiki/Leasingportal/file.md")
  */
-export function toStoragePath(files: File[], displayPath: string): string {
+export function toStoragePath(files: readonly File[], displayPath: string): string {
   const prefix = detectCommonRootPrefix(files);
   
   // If there's no common root prefix, display path === storage path
@@ -76,7 +99,7 @@ export function toStoragePath(files: File[], displayPath: string): string {
  * @param storagePath - Path as stored in files (e.g., "KK-Laaneportal.wiki/Leasingportal/file.md")
  * @returns Display path for UI (e.g., "Leasingportal/file.md")
  */
-export function toDisplayPath(files: File[], storagePath: string): string {
+export function toDisplayPath(files: readonly File[], storagePath: string): string {
   const prefix = detectCommonRootPrefix(files);
   
   // If there's no common root prefix, display path === storage path
@@ -102,7 +125,7 @@ export function toDisplayPath(files: File[], storagePath: string): string {
  * @param displayPath - Path as shown in UI
  * @returns File object or undefined if not found
  */
-export function getFileByDisplayPath(files: File[], displayPath: string): File | undefined {
+export function getFileByDisplayPath(files: readonly File[], displayPath: string): File | undefined {
   const prefix = detectCommonRootPrefix(files);
   const storagePath = toStoragePath(files, displayPath);
   
@@ -159,7 +182,7 @@ export function getFileByDisplayPath(files: File[], displayPath: string): File |
  * @param file - File object
  * @returns Display path (without prefix)
  */
-export function normalizeFilePath(files: File[], file: File): string {
+export function normalizeFilePath(files: readonly File[], file: File): string {
   const storagePath = getStoragePath(file);
   return toDisplayPath(files, storagePath);
 }

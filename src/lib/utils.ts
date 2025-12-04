@@ -256,7 +256,7 @@ export function isMatchingWikiLink(url: string, currentWikiName: string | null):
  * @param targetPath - Target file path to find
  * @returns Matching file if found, undefined otherwise
  */
-export function findFileFlexible(files: File[], targetPath: string): File | undefined {
+export function findFileFlexible(files: readonly File[], targetPath: string): File | undefined {
   console.log('[findFileFlexible] Searching for:', targetPath);
   console.log('[findFileFlexible] Total files to search:', files.length);
   

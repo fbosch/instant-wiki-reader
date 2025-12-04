@@ -1,18 +1,18 @@
 'use client';
 
-import { createContext, useContext, useReducer, useCallback, useEffect, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useState } from 'react';
+import { useSnapshot } from 'valtio';
 import type {
-  FileSystemState,
   FileSystemActions,
   DirectoryNode,
   FileContent,
   SearchIndexEntry,
   SearchMode,
-  AzureDevOpsContext,
 } from '@/types';
 import {
   openDirectory,
   buildDirectoryTree,
+  buildDirectoryTreeFromMetadata,
   filterMarkdownFiles,
   readFileAsText,
   getSavedDirectoryHandle,
@@ -22,13 +22,29 @@ import {
   getWikiNameFromGit,
   getAzureDevOpsContext,
   cacheFiles,
-  loadCachedFiles,
+  loadCachedFileMetadata,
   clearCachedFiles,
   cleanWikiName,
 } from '@/lib/file-system';
 import { pickDirectory, verifyPermission, readDirectory } from '@/lib/fs-access';
-import { getFileByDisplayPath } from '@/lib/path-manager';
+import { getFileByDisplayPath, getFilePath } from '@/lib/path-manager';
 import { useWorkers } from '@/hooks/use-workers';
+import {
+  fileSystemStore,
+  setRootHandle,
+  setDirectoryTree,
+  setCurrentFile,
+  updateFileCache,
+  setPermissionState,
+  setIsScanning,
+  setIsInitializing,
+  setLastRefresh,
+  setAllFiles,
+  setWikiName,
+  setAzureDevOpsContext,
+  clearAllFileSystem,
+} from '@/store/file-system-store';
+import { getCurrentExpandedDirs } from '@/store/ui-store';
 
 // Error messages
 const ERROR_MESSAGES = {
@@ -41,114 +57,17 @@ const ERROR_MESSAGES = {
   CONTEXT_ERROR: 'useFileSystem must be used within a FileSystemProvider',
 } as const;
 
-// Initial state
-const initialState: FileSystemState = {
-  rootHandle: null,
-  directoryTree: null,
-  selectedNode: null,
-  currentFile: null,
-  fileCache: new Map(),
-  handleCache: new Map(),
-  permissionState: 'unknown',
-  isScanning: false,
-  isInitializing: true,
-  lastRefresh: null,
-  searchIndex: [],
-  expandedDirs: new Set(),
-  allFiles: [],
-  wikiName: null,
-  azureDevOpsContext: null,
-};
-
-// Action types
-type Action =
-  | { type: 'SET_ROOT_HANDLE'; payload: FileSystemDirectoryHandle | null }
-  | { type: 'SET_DIRECTORY_TREE'; payload: DirectoryNode | null }
-  | { type: 'SET_SELECTED_NODE'; payload: DirectoryNode | null }
-  | { type: 'SET_CURRENT_FILE'; payload: FileContent | null }
-  | { type: 'UPDATE_FILE_CACHE'; payload: { path: string; content: FileContent } }
-  | { type: 'SET_PERMISSION_STATE'; payload: FileSystemState['permissionState'] }
-  | { type: 'SET_IS_SCANNING'; payload: boolean }
-  | { type: 'SET_IS_INITIALIZING'; payload: boolean }
-  | { type: 'SET_LAST_REFRESH'; payload: number }
-  | { type: 'SET_SEARCH_INDEX'; payload: SearchIndexEntry[] }
-  | { type: 'SET_EXPANDED_DIRS'; payload: Set<string> }
-  | { type: 'SET_ALL_FILES'; payload: File[] }
-  | { type: 'SET_WIKI_NAME'; payload: string | null }
-  | { type: 'SET_AZURE_DEVOPS_CONTEXT'; payload: AzureDevOpsContext | null }
-  | { type: 'CLEAR_ALL' };
-
-// Reducer
-function fileSystemReducer(state: FileSystemState, action: Action): FileSystemState {
-  switch (action.type) {
-    case 'SET_ROOT_HANDLE':
-      return { ...state, rootHandle: action.payload };
-    
-    case 'SET_DIRECTORY_TREE':
-      return { ...state, directoryTree: action.payload };
-    
-    case 'SET_SELECTED_NODE':
-      return { ...state, selectedNode: action.payload };
-    
-    case 'SET_CURRENT_FILE':
-      return { ...state, currentFile: action.payload };
-    
-    case 'UPDATE_FILE_CACHE': {
-      const newCache = new Map(state.fileCache);
-      newCache.set(action.payload.path, action.payload.content);
-      return { ...state, fileCache: newCache };
-    }
-    
-    case 'SET_PERMISSION_STATE':
-      return { ...state, permissionState: action.payload };
-    
-    case 'SET_IS_SCANNING':
-      return { ...state, isScanning: action.payload };
-    
-    case 'SET_IS_INITIALIZING':
-      return { ...state, isInitializing: action.payload };
-    
-    case 'SET_LAST_REFRESH':
-      return { ...state, lastRefresh: action.payload };
-    
-    case 'SET_SEARCH_INDEX':
-      return { ...state, searchIndex: action.payload };
-    
-    case 'SET_EXPANDED_DIRS':
-      return { ...state, expandedDirs: action.payload };
-    
-    case 'SET_ALL_FILES':
-      return { ...state, allFiles: action.payload };
-    
-    case 'SET_WIKI_NAME':
-      return { ...state, wikiName: action.payload };
-    
-    case 'SET_AZURE_DEVOPS_CONTEXT':
-      return { ...state, azureDevOpsContext: action.payload };
-    
-    case 'CLEAR_ALL':
-      return { ...initialState };
-    
-    default:
-      return state;
-  }
-}
-
-// Context
-const FileSystemContext = createContext<
-  (FileSystemState & FileSystemActions) | undefined
->(undefined);
+// Context - now only provides actions, state comes from Valtio
+const FileSystemContext = createContext<FileSystemActions | undefined>(undefined);
 
 // Provider component
 export function FileSystemProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(fileSystemReducer, initialState);
-  const [allFiles, setAllFiles] = useState<File[]>([]);
   const [urlUpdateCallback, setUrlUpdateCallback] = useState<
     ((file: string | null, expanded: Set<string>) => void) | null
   >(null);
   
-  // Initialize workers
-  const { treeWorker, contentSearchWorker } = useWorkers();
+  // Initialize workers (only content search worker needed)
+  const { contentSearchWorker } = useWorkers();
 
   // Helper to extract wiki name and Azure DevOps context from directory handle
   const getWikiName = useCallback(async (handle: FileSystemDirectoryHandle | null): Promise<string | null> => {
@@ -158,7 +77,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     const azureContext = await getAzureDevOpsContext(handle);
     if (azureContext) {
       console.log('[getWikiName] Got Azure DevOps context from git:', azureContext);
-      dispatch({ type: 'SET_AZURE_DEVOPS_CONTEXT', payload: azureContext });
+      setAzureDevOpsContext(azureContext);
       return azureContext.wikiName;
     }
     
@@ -174,58 +93,24 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     return handle.name;
   }, []);
 
-  // Helper function to build tree using worker (with fallback)
-  const buildTreeWithWorker = useCallback(async (files: File[]): Promise<DirectoryNode> => {
-    console.log('[FileSystemContext] Building tree for', files.length, 'files');
-    
-    // Convert File objects to serializable format
-    const serializableFiles = files.map((file) => ({
-      name: file.name,
-      path: file.webkitRelativePath || file.name,
-      size: file.size,
-      lastModified: file.lastModified,
-    }));
-    
-    console.log('[FileSystemContext] Serialized files:', serializableFiles.length);
-    
-    // Try to use worker if available, otherwise use main thread
-    if (treeWorker) {
-      try {
-        console.log('[FileSystemContext] Using tree worker');
-        const tree = await treeWorker.buildDirectoryTree(serializableFiles);
-        console.log('[FileSystemContext] Worker returned tree:', tree);
-        return tree;
-      } catch (error) {
-        console.warn('Worker failed, falling back to main thread:', error);
-      }
-    }
-    
-    // Fallback: build on main thread
-    console.log('[FileSystemContext] Using main thread fallback');
-    const tree = buildDirectoryTree(files);
-    console.log('[FileSystemContext] Main thread returned tree:', tree);
-    return tree;
-  }, [treeWorker]);
-
   // Check for saved directory on mount
   useEffect(() => {
     async function checkSavedDirectory() {
       if (!isFileSystemAccessSupported()) {
-        // Firefox/Safari: try to load cached files
-        const cached = await loadCachedFiles();
+        // Firefox/Safari: try to load cached metadata only (fast)
+        const cached = await loadCachedFileMetadata();
         
         if (cached) {
-          console.log('[FileSystemContext] Loaded cached files for fallback browser');
-          setAllFiles(cached.files);
-          dispatch({ type: 'SET_ALL_FILES', payload: cached.files });
-          dispatch({ type: 'SET_WIKI_NAME', payload: cached.wikiName });
-          dispatch({ type: 'SET_PERMISSION_STATE', payload: 'granted' });
+          console.log('[FileSystemContext] Loaded cached metadata for fallback browser');
           
-          const tree = await buildTreeWithWorker(cached.files);
-          dispatch({ type: 'SET_DIRECTORY_TREE', payload: tree });
-          dispatch({ type: 'SET_LAST_REFRESH', payload: Date.now() });
+          // Build tree from metadata on main thread (fast, no File objects)
+          const tree = buildDirectoryTreeFromMetadata(cached.files);
+          setDirectoryTree(tree);
+          setWikiName(cached.wikiName);
+          setPermissionState('granted');
+          setLastRefresh(Date.now());
           
-          // Build search index in background
+          // Build search index in background (will load content from IndexedDB as needed)
           if (contentSearchWorker) {
             contentSearchWorker.buildIndex().then((result) => {
               console.log('[FileSystemContext] Search index built from cache:', result);
@@ -235,7 +120,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           }
         }
         
-        dispatch({ type: 'SET_IS_INITIALIZING', payload: false });
+        setIsInitializing(false);
         return;
       }
 
@@ -249,42 +134,42 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         if (elapsed < 100) {
           await new Promise(resolve => setTimeout(resolve, 100 - elapsed));
         }
-        dispatch({ type: 'SET_IS_INITIALIZING', payload: false });
+        setIsInitializing(false);
         return;
       }
 
-      dispatch({ type: 'SET_ROOT_HANDLE', payload: savedHandle });
-      dispatch({ type: 'SET_PERMISSION_STATE', payload: 'granted' });
+      setRootHandle(savedHandle);
+      setPermissionState('granted');
       
       // Get and set wiki name
       const wikiNameValue = await getWikiName(savedHandle);
-      dispatch({ type: 'SET_WIKI_NAME', payload: wikiNameValue });
+      setWikiName(wikiNameValue);
       
       // Auto-load the directory
       try {
-        dispatch({ type: 'SET_IS_SCANNING', payload: true });
+        setIsScanning(true);
         const files = await readDirectory(savedHandle);
         setAllFiles(files);
-        dispatch({ type: 'SET_ALL_FILES', payload: files });
         
-        const tree = await buildTreeWithWorker(files);
-        dispatch({ type: 'SET_DIRECTORY_TREE', payload: tree });
-        dispatch({ type: 'SET_LAST_REFRESH', payload: Date.now() });
+        // Build tree on main thread
+        const tree = buildDirectoryTree(files);
+        setDirectoryTree(tree);
+        setLastRefresh(Date.now());
       } catch (error) {
         console.error(ERROR_MESSAGES.LOAD_FAILED, error);
       } finally {
-        dispatch({ type: 'SET_IS_SCANNING', payload: false });
-        dispatch({ type: 'SET_IS_INITIALIZING', payload: false });
+        setIsScanning(false);
+        setIsInitializing(false);
       }
     }
 
     checkSavedDirectory();
-  }, [buildTreeWithWorker, getWikiName]);
+  }, [getWikiName, contentSearchWorker]);
 
   // Select a directory
   const selectDirectory = useCallback(async () => {
     try {
-      dispatch({ type: 'SET_IS_SCANNING', payload: true });
+      setIsScanning(true);
 
       let files: File[];
       let handle: FileSystemDirectoryHandle | null = null;
@@ -294,23 +179,23 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         // Use native API for handle persistence
         handle = await pickDirectory();
         if (!handle) {
-          dispatch({ type: 'SET_IS_SCANNING', payload: false });
+          setIsScanning(false);
           return;
         }
 
         const hasPermission = await verifyPermission(handle, 'read');
         if (!hasPermission) {
-          dispatch({ type: 'SET_PERMISSION_STATE', payload: 'denied' });
-          dispatch({ type: 'SET_IS_SCANNING', payload: false });
+          setPermissionState('denied');
+          setIsScanning(false);
           return;
         }
 
-        dispatch({ type: 'SET_ROOT_HANDLE', payload: handle });
-        dispatch({ type: 'SET_PERMISSION_STATE', payload: 'granted' });
+        setRootHandle(handle);
+        setPermissionState('granted');
         
         // Get and set wiki name
         wikiNameValue = await getWikiName(handle);
-        dispatch({ type: 'SET_WIKI_NAME', payload: wikiNameValue });
+        setWikiName(wikiNameValue);
         
         // Save handle for future use
         await saveDirectoryHandle(handle);
@@ -323,16 +208,16 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         files = result.files;
         
         // No handle persistence in fallback mode
-        dispatch({ type: 'SET_PERMISSION_STATE', payload: 'granted' });
+        setPermissionState('granted');
         
         // Extract wiki name from first file's path (directory name)
         if (files.length > 0) {
-          const firstPath = files[0].webkitRelativePath || files[0].name;
+          const firstPath = getFilePath(files[0]);
           const rootDirName = firstPath.split('/')[0];
           
           // Clean up the wiki name for display
           wikiNameValue = cleanWikiName(rootDirName);
-          dispatch({ type: 'SET_WIKI_NAME', payload: wikiNameValue });
+          setWikiName(wikiNameValue);
         }
         
         // Cache files for next page load
@@ -350,19 +235,18 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
       }
 
       setAllFiles(files);
-      dispatch({ type: 'SET_ALL_FILES', payload: files });
       
-      // Build directory tree in worker
-      const tree = await buildTreeWithWorker(files);
-      dispatch({ type: 'SET_DIRECTORY_TREE', payload: tree });
-      dispatch({ type: 'SET_LAST_REFRESH', payload: Date.now() });
+      // Build directory tree on main thread
+      const tree = buildDirectoryTree(files);
+      setDirectoryTree(tree);
+      setLastRefresh(Date.now());
     } catch (error) {
       console.error(ERROR_MESSAGES.SELECT_FAILED, error);
       throw error;
     } finally {
-      dispatch({ type: 'SET_IS_SCANNING', payload: false });
+      setIsScanning(false);
     }
-  }, [buildTreeWithWorker, getWikiName]);
+  }, [getWikiName, contentSearchWorker]);
 
   // Load children of a directory node (for lazy loading)
   const loadNodeChildren = useCallback(async (node: DirectoryNode) => {
@@ -375,20 +259,51 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   const openFile = useCallback(
     async (path: string) => {
       try {
+        console.log('[openFile] Opening file:', path);
+        
         // Check cache first
-        const cached = state.fileCache.get(path);
+        const cached = fileSystemStore.fileCache.get(path);
         if (cached) {
-          dispatch({ type: 'SET_CURRENT_FILE', payload: cached });
-          // Notify URL update callback
-          urlUpdateCallback?.(path, state.expandedDirs);
+          console.log('[openFile] Found in fileCache');
+          setCurrentFile(cached);
+          urlUpdateCallback?.(path, getCurrentExpandedDirs());
           return;
         }
 
+        // Try to load from IndexedDB first (for cached/Firefox mode)
+        const { getFileContentFromCache } = await import('@/lib/file-system');
+        const cachedContent = await getFileContentFromCache(path);
+        
+        if (cachedContent !== null) {
+          console.log('[openFile] Loaded from IndexedDB cache:', path);
+          const fileContent: FileContent = {
+            path,
+            content: cachedContent,
+          };
+          
+          updateFileCache(path, fileContent);
+          setCurrentFile(fileContent);
+          urlUpdateCallback?.(path, getCurrentExpandedDirs());
+          return;
+        }
+
+        // Fallback to allFiles for File System Access API mode
+        const allFiles = fileSystemStore.allFiles;
+        
+        console.log('[openFile] Not in IndexedDB, trying allFiles. Count:', allFiles.length);
+        
+        if (allFiles.length === 0) {
+          throw new Error(`File not found in cache or allFiles: ${path}`);
+        }
+        
         // Use PathManager functional helper to find the file
-        const file = getFileByDisplayPath(state.allFiles, path);
+        const file = getFileByDisplayPath(allFiles, path);
         if (!file) {
+          console.error('[openFile] File not found:', path);
           throw new Error(ERROR_MESSAGES.FILE_NOT_FOUND(path));
         }
+
+        console.log('[openFile] Found file in allFiles');
 
         // Read file content
         const content = await readFileAsText(file);
@@ -397,18 +312,15 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           content,
         };
 
-        // Update cache and state
-        dispatch({ type: 'UPDATE_FILE_CACHE', payload: { path, content: fileContent } });
-        dispatch({ type: 'SET_CURRENT_FILE', payload: fileContent });
-        
-        // Notify URL update callback
-        urlUpdateCallback?.(path, state.expandedDirs);
+        updateFileCache(path, fileContent);
+        setCurrentFile(fileContent);
+        urlUpdateCallback?.(path, getCurrentExpandedDirs());
       } catch (error) {
         console.error(ERROR_MESSAGES.OPEN_FAILED, error);
         throw error;
       }
     },
-    [state.fileCache, state.expandedDirs, state.allFiles, urlUpdateCallback]
+    [urlUpdateCallback]
   );
 
   // Search (currently simple sync search, can be enhanced with searchWorker for full-text)
@@ -418,7 +330,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
 
       // Simple filename search for now
       const lowerQuery = query.toLowerCase();
-      const mdFiles = filterMarkdownFiles(allFiles);
+      const mdFiles = filterMarkdownFiles(fileSystemStore.allFiles);
 
       const results: SearchIndexEntry[] = mdFiles
         .filter((file) => {
@@ -434,7 +346,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
 
       return results;
     },
-    [allFiles]
+    []
   );
 
   // Full-text content search using worker
@@ -462,42 +374,41 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
 
   // Refresh directory
   const refresh = useCallback(async () => {
-    if (!state.rootHandle) {
+    if (!fileSystemStore.rootHandle) {
       throw new Error(ERROR_MESSAGES.NO_DIRECTORY);
     }
 
     try {
-      dispatch({ type: 'SET_IS_SCANNING', payload: true });
+      setIsScanning(true);
 
-      const files = await readDirectory(state.rootHandle);
+      const files = await readDirectory(fileSystemStore.rootHandle);
       setAllFiles(files);
-      dispatch({ type: 'SET_ALL_FILES', payload: files });
 
-      const tree = await buildTreeWithWorker(files);
-      dispatch({ type: 'SET_DIRECTORY_TREE', payload: tree });
-      dispatch({ type: 'SET_LAST_REFRESH', payload: Date.now() });
+      const tree = buildDirectoryTree(files);
+      setDirectoryTree(tree);
+      setLastRefresh(Date.now());
     } catch (error) {
       console.error(ERROR_MESSAGES.REFRESH_FAILED, error);
       throw error;
     } finally {
-      dispatch({ type: 'SET_IS_SCANNING', payload: false });
+      setIsScanning(false);
     }
-  }, [state.rootHandle, buildTreeWithWorker]);
+  }, [contentSearchWorker]);
 
   // Clear directory
   const clearDirectory = useCallback(async () => {
     await clearDirectoryHandle();
     await clearCachedFiles();
-    dispatch({ type: 'CLEAR_ALL' });
-    setAllFiles([]);
+    clearAllFileSystem();
   }, []);
 
-  // Set expanded directories
+  // Set expanded directories (delegates to ui-store)
   const setExpandedDirs = useCallback((dirs: Set<string>) => {
-    dispatch({ type: 'SET_EXPANDED_DIRS', payload: dirs });
+    // This is now handled by ui-store, but we keep the interface for compatibility
+    // The actual implementation is in ui-store.ts via setExpandedDirs action
     // Notify URL update callback
-    urlUpdateCallback?.(state.currentFile?.path || null, dirs);
-  }, [state.currentFile, urlUpdateCallback]);
+    urlUpdateCallback?.(fileSystemStore.currentFile?.path || null, dirs);
+  }, [urlUpdateCallback]);
 
   // Set URL update callback
   const setUrlUpdateCallbackFn = useCallback((callback: (file: string | null, expanded: Set<string>) => void) => {
@@ -505,7 +416,6 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const value = {
-    ...state,
     selectDirectory,
     loadNodeChildren,
     openFile,
@@ -524,11 +434,19 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   );
 }
 
-// Hook to use the context
+// Hook to use the context - returns actions AND reactive state from Valtio
 export function useFileSystem() {
   const context = useContext(FileSystemContext);
   if (context === undefined) {
     throw new Error(ERROR_MESSAGES.CONTEXT_ERROR);
   }
-  return context;
+  
+  // Get reactive state from Valtio
+  const state = useSnapshot(fileSystemStore);
+  
+  // Merge actions from context with state from Valtio
+  return {
+    ...state,
+    ...context,
+  };
 }

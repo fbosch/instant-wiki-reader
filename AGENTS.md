@@ -774,6 +774,39 @@ wip
 - **Keep branches short-lived**
 - **Rebase before merging** to keep history clean
 
+## Cross-Browser Compatibility
+
+### File System APIs
+- **Support all modern browsers** - Chrome, Firefox, Safari, Edge
+- **Don't rely solely on webkit-specific APIs** like `webkitRelativePath`
+- **Use path helper utilities** from `src/lib/path-manager.ts` for cross-browser path handling
+- **Gracefully degrade** when File System Access API is unavailable (use browser-fs-access fallback)
+
+```typescript
+// ❌ Bad - Direct webkit API usage
+const path = file.webkitRelativePath;
+
+// ✅ Good - Use helper utilities that work across browsers
+import { getFilePath } from '@/lib/path-manager';
+const path = getFilePath(file);
+```
+
+### Path Management
+- **Always use path utilities** when working with file paths
+- **Handle both File objects and metadata** (for cached mode)
+- **Support fallback patterns** for browsers without native support
+
+```typescript
+// ✅ Good - Cross-browser path extraction
+import { getFilePath, getFileByDisplayPath } from '@/lib/path-manager';
+
+// Works with both File objects and metadata
+const path = getFilePath(fileOrMetadata);
+
+// Find files across different storage modes
+const file = getFileByDisplayPath(files, displayPath);
+```
+
 ## When in Doubt
 
 1. **Favor explicitness over cleverness**
@@ -781,6 +814,7 @@ wip
 3. **Follow existing patterns** in the codebase
 4. **Ask for clarification** if requirements are unclear
 5. **Write code for humans first**, computers second
+6. **Test across multiple browsers** when working with File System APIs
 
 ---
 
