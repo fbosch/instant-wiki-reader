@@ -43,24 +43,6 @@ export interface AzureDevOpsContext {
   baseUrl: string;
 }
 
-export interface FileSystemState {
-  rootHandle: FileSystemDirectoryHandle | null;
-  directoryTree: DirectoryNode | null;
-  selectedNode: DirectoryNode | null;
-  currentFile: FileContent | null;
-  fileCache: Map<string, FileContent>;
-  handleCache: Map<string, FileSystemHandle>;
-  permissionState: PermissionState;
-  isScanning: boolean;
-  isInitializing: boolean;
-  lastRefresh: number | null;
-  searchIndex: SearchIndexEntry[];
-  expandedDirs: Set<string>;
-  allFiles: File[]; // All files loaded from the directory
-  wikiName: string | null; // Name of the wiki (e.g., "KK-Laaneportal.wiki")
-  azureDevOpsContext: AzureDevOpsContext | null; // Azure DevOps context for work item links
-}
-
 export type SearchMode = 'filename' | 'fulltext';
 
 export interface SearchResult {

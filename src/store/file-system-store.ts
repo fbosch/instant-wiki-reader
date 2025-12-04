@@ -20,7 +20,6 @@ export interface FileSystemStore {
   
   // Caches
   fileCache: Map<string, FileContent>;
-  handleCache: Map<string, FileSystemFileHandle>;
   
   // Permission & loading states
   permissionState: 'unknown' | 'granted' | 'denied' | 'prompt';
@@ -80,7 +79,6 @@ const initialState: FileSystemStore = {
   selectedNode: null,
   currentFile: null,
   fileCache: new Map(),
-  handleCache: new Map(),
   permissionState: 'unknown',
   isScanning: false,
   isInitializing: true,
@@ -200,8 +198,6 @@ export function clearAllFileSystem() {
   fileSystemStore.selectedNode = null;
   fileSystemStore.currentFile = null;
   fileSystemStore.fileCache = new Map();
-  fileSystemStore.handleCache = new Map();
-  globalFilePathMetadata = new Map(); // Clear the module-level map
   fileSystemStore.permissionState = 'unknown';
   fileSystemStore.isScanning = false;
   fileSystemStore.isInitializing = true;

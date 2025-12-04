@@ -11,7 +11,6 @@ import type {
 } from '@/types';
 import {
   openDirectory,
-  buildDirectoryTree,
   buildDirectoryTreeFromMetadata,
   filterMarkdownFiles,
   readFileAsText,
@@ -28,7 +27,8 @@ import {
   getFileByPath,
 } from '@/lib/file-system';
 import { pickDirectory, verifyPermission, readDirectory } from '@/lib/fs-access';
-import { getFileByDisplayPath, getFilePath } from '@/lib/path-manager';
+import { getFileByDisplayPath } from '@/lib/path-manager';
+import { getFilePath } from '@/lib/path-manager';
 import { useWorkers } from '@/hooks/use-workers';
 import {
   fileSystemStore,
@@ -211,7 +211,11 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           setAllFiles(files);
           
           // Build tree on main thread
-          const tree = buildDirectoryTree(files);
+          const metadata = files.map(file => ({
+            path: getFilePath(file),
+            name: file.name,
+          }));
+          const tree = buildDirectoryTreeFromMetadata(metadata);
           setDirectoryTree(tree);
           setLastRefresh(Date.now());
           
@@ -331,7 +335,11 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
       setAllFiles(files);
       
       // Build directory tree on main thread
-      const tree = buildDirectoryTree(files);
+      const metadata = files.map(file => ({
+        path: getFilePath(file),
+        name: file.name,
+      }));
+      const tree = buildDirectoryTreeFromMetadata(metadata);
       setDirectoryTree(tree);
       setLastRefresh(Date.now());
     } catch (error) {
@@ -506,7 +514,11 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
       const files = await readDirectory(fileSystemStore.rootHandle);
       setAllFiles(files);
 
-      const tree = buildDirectoryTree(files);
+      const metadata = files.map(file => ({
+        path: getFilePath(file),
+        name: file.name,
+      }));
+      const tree = buildDirectoryTreeFromMetadata(metadata);
       setDirectoryTree(tree);
       setLastRefresh(Date.now());
     } catch (error) {

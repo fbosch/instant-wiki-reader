@@ -5,17 +5,25 @@ import type { DirectoryNode, FileMeta } from '@/types';
 import { getFilePath } from '@/lib/path-manager';
 
 /**
- * Safely access properties on File-like objects.
+ * Safely access properties on file-like objects.
  * In Firefox, browser-fs-access may return objects where properties are getters that can throw.
+ * 
+ * @param obj - Object to access property from
+ * @param prop - Property name
+ * @param defaultValue - Default value if property is inaccessible
+ * @returns Property value or default
  */
-function safeFileAccess<T>(obj: File, prop: keyof File, defaultValue: T): T {
+function safePropertyAccess<T>(obj: unknown, prop: string, defaultValue: T): T {
   try {
-    const value = obj[prop];
-    if (value !== null && value !== undefined) {
-      return value as T;
+    if (obj && typeof obj === 'object' && prop in obj) {
+      const value = (obj as Record<string, unknown>)[prop];
+      if (value !== null && value !== undefined) {
+        return value as T;
+      }
     }
   } catch (e) {
-    console.warn(`[safeFileAccess] Error accessing ${String(prop)}:`, e);
+    // Property access threw an error (browser quirk)
+    console.warn(`[safePropertyAccess] Error accessing ${prop}:`, e);
   }
   return defaultValue;
 }
@@ -254,10 +262,10 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
       const path = getFilePath(file);
       const metadata: FileMetadata = {
         path,
-        name: safeFileAccess(file, 'name', 'unknown'),
-        size: safeFileAccess(file, 'size', 0),
-        lastModified: safeFileAccess(file, 'lastModified', Date.now()),
-        type: safeFileAccess(file, 'type', ''),
+        name: safePropertyAccess(file, 'name', 'unknown'),
+        size: safePropertyAccess(file, 'size', 0),
+        lastModified: safePropertyAccess(file, 'lastModified', Date.now()),
+        type: safePropertyAccess(file, 'type', ''),
       };
       metadataTx.store.put(metadata);
     }
@@ -266,8 +274,8 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
     
     // Log first few file paths for debugging
     console.log('[cacheFiles] First 3 file paths:', files.slice(0, 3).map(f => ({
-      name: safeFileAccess(f, 'name', ''),
-      webkitRelativePath: safeFileAccess(f, 'webkitRelativePath', ''),
+      name: safePropertyAccess(f, 'name', ''),
+      webkitRelativePath: safePropertyAccess(f, 'webkitRelativePath', ''),
       getFilePath: getFilePath(f),
     })));
     
@@ -296,7 +304,7 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
     let mdFilesCount = 0;
     
     const mdFiles = files.filter(f => {
-      const name = safeFileAccess(f, 'name', '');
+      const name = safePropertyAccess(f, 'name', '');
       return name.endsWith('.md') || name.endsWith('.markdown');
     });
     
@@ -319,7 +327,7 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
           contentsToWrite.push({
             path,
             content,
-            lastModified: safeFileAccess(file, 'lastModified', Date.now()),
+            lastModified: safePropertyAccess(file, 'lastModified', Date.now()),
           });
         } catch (error) {
           console.error('[cacheFiles] Error reading file:', getFilePath(file), error);
@@ -403,7 +411,7 @@ export async function loadCachedFiles(): Promise<File[] | null> {
       setFilePathMapping(file, record.path);
       
       // Check if webkitRelativePath is missing or empty
-      const currentPath = safeFileAccess(file, 'webkitRelativePath', '');
+      const currentPath = safePropertyAccess(file, 'webkitRelativePath', '');
       
       // Log first few files for debugging
       if (index < 3) {
@@ -426,7 +434,7 @@ export async function loadCachedFiles(): Promise<File[] | null> {
           });
           
           // Verify it actually worked
-          const verifyPath = safeFileAccess(file, 'webkitRelativePath', '');
+          const verifyPath = safePropertyAccess(file, 'webkitRelativePath', '');
           if (index < 3) {
             console.log(`[loadCachedFiles] ✓ Restored webkitRelativePath from "${currentPath}" to "${record.path}"`);
             console.log(`[loadCachedFiles]   Verification: getFilePath returns "${getFilePath(file)}"`);
@@ -651,32 +659,15 @@ export function buildDirectoryTreeFromMetadata(
 }
 
 /**
- * Build a directory tree from a flat list of files.
- * Uses sorting for O(n log n) performance instead of nested lookups (O(n²)).
- * 
- * @param files - Array of File objects with webkitRelativePath property
- * @returns Root directory node with nested children and common root prefix info
- */
-export function buildDirectoryTree(files: File[]): DirectoryNode & { _commonRootPrefix?: string } {
-  // Convert File objects to metadata and delegate to buildDirectoryTreeFromMetadata
-  const metadata = files.map(file => ({
-    path: getFilePath(file),
-    name: safeFileAccess(file, 'name', 'unknown'),
-  }));
-  
-  return buildDirectoryTreeFromMetadata(metadata);
-}
-
-/**
  * Extract file metadata from a File object.
  * 
  * @param file - File object to extract metadata from
  * @returns FileMeta object with path, name, size, lastModified, and extension
  */
 export function extractFileMeta(file: File): FileMeta {
-  const name = safeFileAccess(file, 'name', 'unknown');
-  const size = safeFileAccess(file, 'size', 0);
-  const lastModified = safeFileAccess(file, 'lastModified', Date.now());
+  const name = safePropertyAccess(file, 'name', 'unknown');
+  const size = safePropertyAccess(file, 'size', 0);
+  const lastModified = safePropertyAccess(file, 'lastModified', Date.now());
   const path = getFilePath(file);
   const extension = name.includes('.') ? name.substring(name.lastIndexOf('.')) : '';
 
@@ -699,7 +690,7 @@ const MARKDOWN_EXTENSIONS = ['.md', '.markdown'];
  */
 export function filterMarkdownFiles(files: File[]): File[] {
   return files.filter((file) => {
-    const name = safeFileAccess(file, 'name', '');
+    const name = safePropertyAccess(file, 'name', '');
     const lowerName = name.toLowerCase();
     return MARKDOWN_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
   });
