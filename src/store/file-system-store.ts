@@ -1,4 +1,4 @@
-import { proxy } from 'valtio';
+import { proxy, ref } from 'valtio';
 import type {
   DirectoryNode,
   FileContent,
@@ -48,7 +48,7 @@ const initialState: FileSystemStore = {
   isInitializing: true,
   lastRefresh: null,
   searchIndex: [],
-  allFiles: [],
+  allFiles: ref([]) as File[], // Use ref to prevent proxying File objects
   wikiName: null,
   azureDevOpsContext: null,
 };
@@ -99,7 +99,9 @@ export function setSearchIndex(index: SearchIndexEntry[]) {
 }
 
 export function setAllFiles(files: File[]) {
-  fileSystemStore.allFiles = files;
+  // Use ref() to prevent Valtio from wrapping File objects in Proxies
+  // This is critical because File objects have getters that don't work through Proxies
+  fileSystemStore.allFiles = ref(files) as File[];
 }
 
 export function setWikiName(name: string | null) {
@@ -123,7 +125,7 @@ export function clearAllFileSystem() {
   fileSystemStore.isInitializing = true;
   fileSystemStore.lastRefresh = null;
   fileSystemStore.searchIndex = [];
-  fileSystemStore.allFiles = [];
+  fileSystemStore.allFiles = ref([]) as File[]; // Use ref to prevent proxying
   fileSystemStore.wikiName = null;
   fileSystemStore.azureDevOpsContext = null;
 }

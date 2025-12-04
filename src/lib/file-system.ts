@@ -4,10 +4,26 @@ import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { DirectoryNode, FileMeta } from '@/types';
 import { getFilePath } from '@/lib/path-manager';
 
+/**
+ * Safely access properties on File-like objects.
+ * In Firefox, browser-fs-access may return objects where properties are getters that can throw.
+ */
+function safeFileAccess<T>(obj: File, prop: keyof File, defaultValue: T): T {
+  try {
+    const value = obj[prop];
+    if (value !== null && value !== undefined) {
+      return value as T;
+    }
+  } catch (e) {
+    console.warn(`[safeFileAccess] Error accessing ${String(prop)}:`, e);
+  }
+  return defaultValue;
+}
+
 const DIRECTORY_HANDLE_KEY = 'wiki-directory-handle';
 const CACHED_WIKI_NAME_KEY = 'wiki-cached-name';
 const FILE_CONTENTS_DB_NAME = 'wiki-file-contents';
-const FILE_CONTENTS_DB_VERSION = 3;
+const FILE_CONTENTS_DB_VERSION = 4; // Incremented for new 'files' store
 
 // Create a custom store for idb-keyval to avoid conflicts
 const customStore = createStore('wiki-keyval-store', 'keyval');
@@ -24,7 +40,7 @@ export interface FileMetadata {
 }
 
 /**
- * IndexedDB schema with separate stores for metadata and contents
+ * IndexedDB schema with separate stores for metadata, contents, and File objects
  */
 interface FileContentsDB extends DBSchema {
   'metadata': {
@@ -39,10 +55,17 @@ interface FileContentsDB extends DBSchema {
       lastModified: number;
     };
   };
+  'files': {
+    key: string; // file path
+    value: {
+      path: string;
+      file: File; // Actual File object stored as Blob
+    };
+  };
 }
 
 /**
- * Get or create the file contents database with separate metadata and contents stores
+ * Get or create the file contents database with separate metadata, contents, and files stores
  */
 export async function getFileContentsDB(): Promise<IDBPDatabase<FileContentsDB>> {
   return openDB<FileContentsDB>(FILE_CONTENTS_DB_NAME, FILE_CONTENTS_DB_VERSION, {
@@ -55,6 +78,11 @@ export async function getFileContentsDB(): Promise<IDBPDatabase<FileContentsDB>>
       // Create/update contents store for file text content (on-demand loading)
       if (!db.objectStoreNames.contains('contents')) {
         db.createObjectStore('contents', { keyPath: 'path' });
+      }
+      
+      // Create files store for actual File objects
+      if (!db.objectStoreNames.contains('files')) {
+        db.createObjectStore('files', { keyPath: 'path' });
       }
       
       console.log(`[IndexedDB] Upgraded from version ${oldVersion} to ${FILE_CONTENTS_DB_VERSION}`);
@@ -190,8 +218,11 @@ export async function clearDirectoryHandle(): Promise<void> {
 }
 
 /**
- * Save files to IndexedDB cache (for Firefox/browsers without File System Access API).
- * Stores metadata in one store (for fast tree building) and contents in another (for on-demand loading).
+ * Save files to IndexedDB cache (for all browsers - enables webworker access without blocking main thread).
+ * Stores:
+ * - metadata: lightweight file info for tree building
+ * - contents: text content of markdown files
+ * - files: actual File objects (as Blobs) for reconstruction
  * 
  * @param files - Array of files to cache
  * @param wikiName - Name of the wiki for display
@@ -204,30 +235,51 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
     const db = await getFileContentsDB();
     console.log('[cacheFiles] Database opened');
     
-    // Write metadata first
+    // Write metadata first (lightweight)
     console.log('[cacheFiles] Writing metadata for', files.length, 'files');
     const metadataTx = db.transaction('metadata', 'readwrite');
     for (const file of files) {
       const path = getFilePath(file);
       const metadata: FileMetadata = {
         path,
-        name: file.name,
-        size: file.size,
-        lastModified: file.lastModified,
-        type: file.type,
+        name: safeFileAccess(file, 'name', 'unknown'),
+        size: safeFileAccess(file, 'size', 0),
+        lastModified: safeFileAccess(file, 'lastModified', Date.now()),
+        type: safeFileAccess(file, 'type', ''),
       };
       metadataTx.store.put(metadata);
     }
     await metadataTx.done;
     console.log('[cacheFiles] Metadata write complete');
     
-    // Write contents for markdown files
-    console.log('[cacheFiles] Writing contents for markdown files...');
+    // Write File objects (for reconstruction)
+    console.log('[cacheFiles] Writing File objects...');
+    const BATCH_SIZE = 50;
+    
+    for (let i = 0; i < files.length; i += BATCH_SIZE) {
+      const batch = files.slice(i, Math.min(i + BATCH_SIZE, files.length));
+      const filesTx = db.transaction('files', 'readwrite');
+      
+      for (const file of batch) {
+        const path = getFilePath(file);
+        filesTx.store.put({
+          path,
+          file, // Store the actual File object (IndexedDB supports Blob/File)
+        });
+      }
+      
+      await filesTx.done;
+      console.log(`[cacheFiles] Files batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(files.length / BATCH_SIZE)} complete`);
+    }
+    
+    // Write contents for markdown files (pre-read for search)
+    console.log('[cacheFiles] Writing markdown contents...');
     let mdFilesCount = 0;
     
-    // Process files in batches to avoid transaction timeout
-    const mdFiles = files.filter(f => f.name.endsWith('.md') || f.name.endsWith('.markdown'));
-    const BATCH_SIZE = 50;
+    const mdFiles = files.filter(f => {
+      const name = safeFileAccess(f, 'name', '');
+      return name.endsWith('.md') || name.endsWith('.markdown');
+    });
     
     for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {
       const batch = mdFiles.slice(i, Math.min(i + BATCH_SIZE, mdFiles.length));
@@ -239,16 +291,16 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
         contentsTx.store.put({
           path,
           content,
-          lastModified: file.lastModified,
+          lastModified: safeFileAccess(file, 'lastModified', Date.now()),
         });
         mdFilesCount++;
       }
       
       await contentsTx.done;
-      console.log(`[cacheFiles] Batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(mdFiles.length / BATCH_SIZE)} complete (${mdFilesCount}/${mdFiles.length} files)`);
+      console.log(`[cacheFiles] Content batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(mdFiles.length / BATCH_SIZE)} complete (${mdFilesCount}/${mdFiles.length} files)`);
     }
     
-    console.log(`[cacheFiles] ✓ Cached ${files.length} files metadata, ${mdFilesCount} markdown file contents`);
+    console.log(`[cacheFiles] ✓ Cached ${files.length} file objects, ${files.length} metadata, ${mdFilesCount} markdown contents`);
   } catch (error) {
     console.error('[cacheFiles] ✗ Failed to cache files:', error);
     // Don't throw - caching is optional
@@ -256,7 +308,7 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
 }
 
 /**
- * Load cached file metadata from IndexedDB (for Firefox/browsers without File System Access API).
+ * Load cached file metadata from IndexedDB.
  * Returns lightweight metadata suitable for building directory tree.
  * 
  * @returns Object with file metadata array and wiki name, or null if no cache exists
@@ -283,6 +335,55 @@ export async function loadCachedFileMetadata(): Promise<{
     return { files: allMetadata, wikiName };
   } catch (error) {
     console.error('Failed to load cached file metadata:', error);
+    return null;
+  }
+}
+
+/**
+ * Load cached File objects from IndexedDB.
+ * Returns actual File objects for use in the application.
+ * Restores webkitRelativePath property which may be lost during IndexedDB storage.
+ * 
+ * @returns Array of File objects, or null if no cache exists
+ */
+export async function loadCachedFiles(): Promise<File[] | null> {
+  try {
+    const db = await getFileContentsDB();
+    const allFileRecords = await db.getAll('files');
+    
+    if (!allFileRecords || allFileRecords.length === 0) {
+      console.log('[loadCachedFiles] No cached files found');
+      return null;
+    }
+    
+    // Restore webkitRelativePath on File objects (it may be lost in IndexedDB round-trip)
+    const files = allFileRecords.map(record => {
+      const file = record.file;
+      
+      // Check if webkitRelativePath is missing or empty
+      const currentPath = safeFileAccess(file, 'webkitRelativePath', '');
+      if (!currentPath) {
+        // Restore it from the stored path
+        try {
+          Object.defineProperty(file, 'webkitRelativePath', {
+            value: record.path,
+            writable: false,
+            enumerable: true,
+            configurable: true,
+          });
+          console.log(`[loadCachedFiles] Restored webkitRelativePath for: ${record.path}`);
+        } catch (e) {
+          console.warn(`[loadCachedFiles] Failed to restore webkitRelativePath for ${record.path}:`, e);
+        }
+      }
+      
+      return file;
+    });
+    
+    console.log(`[loadCachedFiles] Loaded ${files.length} File objects from cache`);
+    return files;
+  } catch (error) {
+    console.error('[loadCachedFiles] Failed to load cached files:', error);
     return null;
   }
 }
@@ -349,6 +450,12 @@ export function buildDirectoryTreeFromMetadata(
     }
   }
 
+  console.log('[buildDirectoryTreeFromMetadata] Common root prefix:', commonRootPrefix);
+  console.log('[buildDirectoryTreeFromMetadata] Total files:', sortedFiles.length);
+  if (sortedFiles.length > 0) {
+    console.log('[buildDirectoryTreeFromMetadata] First file path:', sortedFiles[0].path);
+  }
+
   for (const file of sortedFiles) {
     const fullPath = file.path; // Keep full path unchanged
     
@@ -397,6 +504,17 @@ export function buildDirectoryTreeFromMetadata(
           children: isLastPart ? undefined : [],
           isExpanded: false,
         };
+        
+        // Debug logging for file nodes
+        if (isLastPart && nodePath.includes('Grønland')) {
+          console.log('[buildDirectoryTreeFromMetadata] Created file node:', {
+            name: part,
+            path: nodePath,
+            fullPath,
+            pathForTreeBuilding,
+          });
+        }
+        
         currentNode.children.push(existingNode);
       }
 
@@ -463,7 +581,7 @@ export function buildDirectoryTree(files: File[]): DirectoryNode & { _commonRoot
   // Convert File objects to metadata and delegate to buildDirectoryTreeFromMetadata
   const metadata = files.map(file => ({
     path: getFilePath(file),
-    name: file.name,
+    name: safeFileAccess(file, 'name', 'unknown'),
   }));
   
   return buildDirectoryTreeFromMetadata(metadata);
@@ -476,7 +594,9 @@ export function buildDirectoryTree(files: File[]): DirectoryNode & { _commonRoot
  * @returns FileMeta object with path, name, size, lastModified, and extension
  */
 export function extractFileMeta(file: File): FileMeta {
-  const { name, size, lastModified } = file;
+  const name = safeFileAccess(file, 'name', 'unknown');
+  const size = safeFileAccess(file, 'size', 0);
+  const lastModified = safeFileAccess(file, 'lastModified', Date.now());
   const path = getFilePath(file);
   const extension = name.includes('.') ? name.substring(name.lastIndexOf('.')) : '';
 
@@ -499,7 +619,8 @@ const MARKDOWN_EXTENSIONS = ['.md', '.markdown'];
  */
 export function filterMarkdownFiles(files: File[]): File[] {
   return files.filter((file) => {
-    const lowerName = file.name.toLowerCase();
+    const name = safeFileAccess(file, 'name', '');
+    const lowerName = name.toLowerCase();
     return MARKDOWN_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
   });
 }

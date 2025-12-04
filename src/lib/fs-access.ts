@@ -3,8 +3,6 @@
  * These functions use the native API directly for features not covered by browser-fs-access
  */
 
-import { FileWrapper, wrapFiles } from './file-wrapper';
-
 // Type definitions for File System Access API
 interface FileSystemDirectoryPickerOptions {
   mode?: 'read' | 'readwrite';
@@ -94,7 +92,7 @@ interface FileSystemDirectoryHandleWithIteration extends FileSystemDirectoryHand
 export async function readDirectory(
   handle: FileSystemDirectoryHandle,
   path: string = ''
-): Promise<FileWrapper[]> {
+): Promise<File[]> {
   const files: File[] = [];
   const ignoredNames = new Set(['node_modules', '.git', '.obsidian']);
   const allowedHiddenDirs = new Set(['.attachments']); // Allow .attachments for images
@@ -121,7 +119,7 @@ export async function readDirectory(
         const fileHandle = entry as FileSystemFileHandle;
         const file = await fileHandle.getFile();
         
-        // Polyfill webkitRelativePath for consistency
+        // Polyfill webkitRelativePath for consistency with browser-fs-access
         Object.defineProperty(file, 'webkitRelativePath', {
           value: entryPath,
           writable: false,
@@ -137,5 +135,5 @@ export async function readDirectory(
   }
 
   await traverse(handle, path);
-  return wrapFiles(files);
+  return files;
 }

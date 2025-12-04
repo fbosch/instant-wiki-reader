@@ -12,12 +12,12 @@
  * Safely extract a property from a file-like object
  * Handles Firefox quirks where getters may throw errors
  */
-function safeGetProperty<T>(obj: any, propName: string, defaultValue: T): T {
+function safeGetProperty<T>(obj: unknown, propName: string, defaultValue: T): T {
   try {
-    if (propName in obj) {
-      const value = obj[propName];
+    if (obj && typeof obj === 'object' && propName in obj) {
+      const value = (obj as Record<string, unknown>)[propName];
       if (value !== null && value !== undefined) {
-        return value;
+        return value as T;
       }
     }
   } catch (e) {
@@ -40,7 +40,7 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
   }
   
   // If it's a File object, try webkitRelativePath (cross-browser support)
-  const file = fileOrMeta as any;
+  const file = fileOrMeta as File;
   
   // Try webkitRelativePath first
   const webkitPath = safeGetProperty(file, 'webkitRelativePath', '');
@@ -54,7 +54,19 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
     return name;
   }
   
-  // Last resort
+  // Last resort - try direct property access (for when safeGetProperty fails)
+  try {
+    if ('webkitRelativePath' in file && file.webkitRelativePath) {
+      return file.webkitRelativePath;
+    }
+    if ('name' in file && file.name) {
+      return file.name;
+    }
+  } catch (e) {
+    // Ignore
+  }
+  
+  // Absolute last resort
   console.error('[getFilePath] Could not get path from file:', file);
   return 'unknown-file';
 }
