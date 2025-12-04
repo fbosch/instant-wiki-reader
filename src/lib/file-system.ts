@@ -1,5 +1,5 @@
 import { directoryOpen } from 'browser-fs-access';
-import { get, set, del } from 'idb-keyval';
+import { createStore, get, set, del } from 'idb-keyval';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { DirectoryNode, FileMeta } from '@/types';
 import { getFilePath } from '@/lib/path-manager';
@@ -8,6 +8,9 @@ const DIRECTORY_HANDLE_KEY = 'wiki-directory-handle';
 const CACHED_WIKI_NAME_KEY = 'wiki-cached-name';
 const FILE_CONTENTS_DB_NAME = 'wiki-file-contents';
 const FILE_CONTENTS_DB_VERSION = 3;
+
+// Create a custom store for idb-keyval to avoid conflicts
+const customStore = createStore('wiki-keyval-store', 'keyval');
 
 /**
  * File metadata for tree rendering (lightweight)
@@ -83,6 +86,7 @@ export async function openDirectory(): Promise<{
   directoryHandle?: FileSystemDirectoryHandle;
 }> {
   try {
+    console.log('[openDirectory] Calling directoryOpen...');
     const files = await directoryOpen({
       recursive: true,
       skipDirectory: (entry) => {
@@ -100,10 +104,17 @@ export async function openDirectory(): Promise<{
       },
     });
 
+    console.log('[openDirectory] Got files, count:', files.length);
+    if (files.length > 0) {
+      console.log('[openDirectory] First file type:', typeof files[0], 'instanceof File:', files[0] instanceof File);
+      console.log('[openDirectory] First file path:', getFilePath(files[0]));
+    }
+
     // Note: browser-fs-access doesn't expose handles directly in current API
     // We use native showDirectoryPicker separately for handle persistence
     return { files };
   } catch (error) {
+    console.error('[openDirectory] Error:', error);
     if ((error as Error).name === 'AbortError') {
       throw new Error('Directory selection was cancelled');
     }
@@ -120,7 +131,7 @@ export async function saveDirectoryHandle(
   handle: FileSystemDirectoryHandle
 ): Promise<void> {
   try {
-    await set(DIRECTORY_HANDLE_KEY, handle);
+    await set(DIRECTORY_HANDLE_KEY, handle, customStore);
   } catch (error) {
     console.error('Failed to save directory handle:', error);
     throw new Error('Failed to persist directory handle');
@@ -140,7 +151,7 @@ interface FileSystemHandleWithPermissions extends FileSystemDirectoryHandle {
  */
 export async function getSavedDirectoryHandle(): Promise<FileSystemDirectoryHandle | null> {
   try {
-    const handle = await get<FileSystemDirectoryHandle>(DIRECTORY_HANDLE_KEY);
+    const handle = await get<FileSystemDirectoryHandle>(DIRECTORY_HANDLE_KEY, customStore);
     if (!handle) {
       return null;
     }
@@ -171,7 +182,7 @@ export async function getSavedDirectoryHandle(): Promise<FileSystemDirectoryHand
  */
 export async function clearDirectoryHandle(): Promise<void> {
   try {
-    await del(DIRECTORY_HANDLE_KEY);
+    await del(DIRECTORY_HANDLE_KEY, customStore);
   } catch (error) {
     console.error('Failed to clear directory handle:', error);
     throw new Error('Failed to clear directory handle');
@@ -187,11 +198,14 @@ export async function clearDirectoryHandle(): Promise<void> {
  */
 export async function cacheFiles(files: File[], wikiName: string): Promise<void> {
   try {
-    await set(CACHED_WIKI_NAME_KEY, wikiName);
+    console.log('[cacheFiles] Starting to cache files...');
+    await set(CACHED_WIKI_NAME_KEY, wikiName, customStore);
     
     const db = await getFileContentsDB();
+    console.log('[cacheFiles] Database opened');
     
     // Write metadata first
+    console.log('[cacheFiles] Writing metadata for', files.length, 'files');
     const metadataTx = db.transaction('metadata', 'readwrite');
     for (const file of files) {
       const path = getFilePath(file);
@@ -205,31 +219,38 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
       metadataTx.store.put(metadata);
     }
     await metadataTx.done;
+    console.log('[cacheFiles] Metadata write complete');
     
     // Write contents for markdown files
-    const contentsTx = db.transaction('contents', 'readwrite');
+    console.log('[cacheFiles] Writing contents for markdown files...');
     let mdFilesCount = 0;
-    for (const file of files) {
-      // Only cache text files (markdown)
-      if (!file.name.endsWith('.md') && !file.name.endsWith('.markdown')) {
-        continue;
+    
+    // Process files in batches to avoid transaction timeout
+    const mdFiles = files.filter(f => f.name.endsWith('.md') || f.name.endsWith('.markdown'));
+    const BATCH_SIZE = 50;
+    
+    for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {
+      const batch = mdFiles.slice(i, Math.min(i + BATCH_SIZE, mdFiles.length));
+      const contentsTx = db.transaction('contents', 'readwrite');
+      
+      for (const file of batch) {
+        const path = getFilePath(file);
+        const content = await file.text();
+        contentsTx.store.put({
+          path,
+          content,
+          lastModified: file.lastModified,
+        });
+        mdFilesCount++;
       }
       
-      const path = getFilePath(file);
-      const content = await file.text();
-      console.log('[cacheFiles] Caching content for path:', path);
-      contentsTx.store.put({
-        path,
-        content,
-        lastModified: file.lastModified,
-      });
-      mdFilesCount++;
+      await contentsTx.done;
+      console.log(`[cacheFiles] Batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(mdFiles.length / BATCH_SIZE)} complete (${mdFilesCount}/${mdFiles.length} files)`);
     }
-    await contentsTx.done;
     
-    console.log(`[cacheFiles] Cached ${files.length} files metadata, ${mdFilesCount} markdown file contents`);
+    console.log(`[cacheFiles] ✓ Cached ${files.length} files metadata, ${mdFilesCount} markdown file contents`);
   } catch (error) {
-    console.error('Failed to cache files:', error);
+    console.error('[cacheFiles] ✗ Failed to cache files:', error);
     // Don't throw - caching is optional
   }
 }
@@ -245,7 +266,7 @@ export async function loadCachedFileMetadata(): Promise<{
   wikiName: string;
 } | null> {
   try {
-    const wikiName = await get<string>(CACHED_WIKI_NAME_KEY);
+    const wikiName = await get<string>(CACHED_WIKI_NAME_KEY, customStore);
     
     if (!wikiName) {
       return null;
@@ -271,7 +292,7 @@ export async function loadCachedFileMetadata(): Promise<{
  */
 export async function clearCachedFiles(): Promise<void> {
   try {
-    await del(CACHED_WIKI_NAME_KEY);
+    await del(CACHED_WIKI_NAME_KEY, customStore);
     
     // Clear both stores in the file contents DB
     const db = await getFileContentsDB();
@@ -656,18 +677,77 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
   try {
     console.log('[getFileContentFromCache] Looking up path:', path);
     const db = await getFileContentsDB();
-    const cached = await db.get('contents', path);
+    
+    // Try direct lookup first
+    let cached = await db.get('contents', path);
     
     if (cached && cached.content) {
       console.log('[getFileContentFromCache] Found content for:', path);
       return cached.content;
     }
     
+    // Try with URL decoding
+    try {
+      const decodedPath = decodeURIComponent(path);
+      if (decodedPath !== path) {
+        cached = await db.get('contents', decodedPath);
+        if (cached && cached.content) {
+          console.log('[getFileContentFromCache] Found content with decoded path:', decodedPath);
+          return cached.content;
+        }
+      }
+    } catch (e) {
+      // Ignore decoding errors
+    }
+    
+    // Try with Unicode normalization (for special characters like æ, ø, å)
+    try {
+      const normalizedPath = path.normalize('NFC');
+      if (normalizedPath !== path) {
+        cached = await db.get('contents', normalizedPath);
+        if (cached && cached.content) {
+          console.log('[getFileContentFromCache] Found content with normalized path:', normalizedPath);
+          return cached.content;
+        }
+      }
+      
+      // Try both normalization and decoding
+      const normalizedDecodedPath = decodeURIComponent(normalizedPath);
+      if (normalizedDecodedPath !== normalizedPath) {
+        cached = await db.get('contents', normalizedDecodedPath);
+        if (cached && cached.content) {
+          console.log('[getFileContentFromCache] Found content with normalized+decoded path:', normalizedDecodedPath);
+          return cached.content;
+        }
+      }
+    } catch (e) {
+      // Ignore normalization errors
+    }
+    
+    // Last resort: search all entries for a matching filename
+    const allEntries = await db.getAll('contents');
+    const fileName = path.split('/').pop();
+    if (fileName) {
+      const match = allEntries.find(entry => {
+        const entryFileName = entry.path.split('/').pop();
+        if (!entryFileName) return false;
+        return entryFileName === fileName || 
+               entryFileName === decodeURIComponent(fileName) ||
+               decodeURIComponent(entryFileName) === fileName;
+      });
+      
+      if (match && match.content) {
+        console.log('[getFileContentFromCache] Found content by filename match:', match.path);
+        console.warn('[getFileContentFromCache] Path mismatch - requested:', path, 'found:', match.path);
+        return match.content;
+      }
+    }
+    
     console.log('[getFileContentFromCache] No content found for:', path);
     
     // Debug: List all keys in contents store
     const allKeys = await db.getAllKeys('contents');
-    console.log('[getFileContentFromCache] Available keys in contents store:', allKeys);
+    console.log('[getFileContentFromCache] Available keys in contents store (first 20):', allKeys.slice(0, 20));
     
     return null;
   } catch (error) {
@@ -679,24 +759,30 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
 /**
  * Read file contents as text.
  * First tries to get from IndexedDB cache (for Firefox/Safari cached files),
- * then falls back to FileReader for live files.
+ * then falls back to native file.text() or FileReader for live files.
  * 
- * @param file - File to read (can be a real File or reconstructed from cache)
+ * @param file - File to read (File or Blob)
  * @param path - Optional path to use for IndexedDB lookup
  * @returns Promise resolving to file content as string
  */
-export async function readFileAsText(file: File, path?: string): Promise<string> {
-  const filePath = path || getFilePath(file);
-  
-  // First try to get from IndexedDB if this might be a cached file
-  const cachedContent = await getFileContentFromCache(filePath);
-  if (cachedContent !== null) {
-    console.log('[readFileAsText] Using cached content from IndexedDB for:', filePath);
-    return cachedContent;
+export async function readFileAsText(file: File | Blob, path?: string): Promise<string> {
+  // For native File objects, try to get path and check cache
+  if (file instanceof File) {
+    const filePath = path || getFilePath(file);
+    
+    const cachedContent = await getFileContentFromCache(filePath);
+    if (cachedContent !== null) {
+      console.log('[readFileAsText] Using cached content from IndexedDB for:', filePath);
+      return cachedContent;
+    }
+    
+    console.log('[readFileAsText] Reading File with file.text():', filePath);
+    // Use native file.text() method - works in all modern browsers
+    return file.text();
   }
   
-  // Fall back to FileReader for live files
-  console.log('[readFileAsText] Reading file with FileReader:', filePath);
+  // For Blob objects, use FileReader
+  console.log('[readFileAsText] Reading Blob with FileReader');
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);

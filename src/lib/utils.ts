@@ -260,6 +260,11 @@ export function findFileFlexible(files: readonly File[], targetPath: string): Fi
   console.log('[findFileFlexible] Searching for:', targetPath);
   console.log('[findFileFlexible] Total files to search:', files.length);
   
+  // Helper to get file path from File
+  const getPath = (f: File): string => {
+    return (f as any).webkitRelativePath || f.name;
+  };
+  
   // Helper to get decoded file path
   const getDecodedPath = (filePath: string): string => {
     try {
@@ -281,12 +286,12 @@ export function findFileFlexible(files: readonly File[], targetPath: string): Fi
   
   // Strategy 1: Exact match (with URL encoding handling)
   let file = files.find((f) => {
-    const filePath = f.webkitRelativePath || f.name;
+    const filePath = getPath(f);
     return pathsMatch(filePath, targetPath);
   });
   
   if (file) {
-    console.log('[findFileFlexible] ✓ Found with strategy 1 (exact):', file.webkitRelativePath || file.name);
+    console.log('[findFileFlexible] ✓ Found with strategy 1 (exact):', getPath(file));
     return file;
   }
 
@@ -295,24 +300,24 @@ export function findFileFlexible(files: readonly File[], targetPath: string): Fi
   const pathWithSpaces = targetPath.replace(/-/g, ' ');
   console.log('[findFileFlexible] Strategy 2: Trying with spaces:', pathWithSpaces);
   file = files.find((f) => {
-    const filePath = f.webkitRelativePath || f.name;
+    const filePath = getPath(f);
     return filePath === pathWithSpaces;
   });
   
   if (file) {
-    console.log('[findFileFlexible] ✓ Found with strategy 2 (spaces):', file.webkitRelativePath || file.name);
+    console.log('[findFileFlexible] ✓ Found with strategy 2 (spaces):', getPath(file));
     return file;
   }
 
   // Strategy 3: Case-insensitive match
   console.log('[findFileFlexible] Strategy 3: Trying case-insensitive');
   file = files.find((f) => {
-    const filePath = f.webkitRelativePath || f.name;
+    const filePath = getPath(f);
     return filePath.toLowerCase() === targetPath.toLowerCase();
   });
   
   if (file) {
-    console.log('[findFileFlexible] ✓ Found with strategy 3 (case-insensitive):', file.webkitRelativePath || file.name);
+    console.log('[findFileFlexible] ✓ Found with strategy 3 (case-insensitive):', getPath(file));
     return file;
   }
 
@@ -321,7 +326,7 @@ export function findFileFlexible(files: readonly File[], targetPath: string): Fi
   if (baseName) {
     console.log('[findFileFlexible] Strategy 4: Trying fuzzy match for base name:', baseName);
     file = files.find((f) => {
-      const filePath = f.webkitRelativePath || f.name;
+      const filePath = getPath(f);
       const fileBaseName = filePath.split('/').pop()?.replace('.md', '');
       
       // Try exact base name match
@@ -334,7 +339,7 @@ export function findFileFlexible(files: readonly File[], targetPath: string): Fi
     });
     
     if (file) {
-      console.log('[findFileFlexible] ✓ Found with strategy 4 (fuzzy):', file.webkitRelativePath || file.name);
+      console.log('[findFileFlexible] ✓ Found with strategy 4 (fuzzy):', getPath(file));
       return file;
     }
   }
@@ -347,7 +352,7 @@ export function findFileFlexible(files: readonly File[], targetPath: string): Fi
     
     // Find all files that start with the search term
     const candidates = files.filter((f) => {
-      const filePath = f.webkitRelativePath || f.name;
+      const filePath = getPath(f);
       const fileBaseName = filePath.split('/').pop()?.replace('.md', '') || '';
       const normalizedFile = fileBaseName.toLowerCase().replace(/[-\s]/g, '');
       
@@ -364,19 +369,19 @@ export function findFileFlexible(files: readonly File[], targetPath: string): Fi
     if (candidates.length === 1) {
       // If we found exactly one candidate, use it (unambiguous match)
       file = candidates[0];
-      console.log('[findFileFlexible] ✓ Found with strategy 5 (partial, unambiguous):', file.webkitRelativePath || file.name);
+      console.log('[findFileFlexible] ✓ Found with strategy 5 (partial, unambiguous):', getPath(file));
       return file;
     } else if (candidates.length > 1) {
       // Multiple matches - pick the shortest one (most likely to be the right match)
       console.log('[findFileFlexible] Found multiple partial matches:', candidates.length);
       file = candidates.reduce((shortest, current) => {
-        const shortestPath = shortest.webkitRelativePath || shortest.name;
-        const currentPath = current.webkitRelativePath || current.name;
+        const shortestPath = getPath(shortest);
+        const currentPath = getPath(current);
         const shortestName = shortestPath.split('/').pop()?.replace('.md', '') || '';
         const currentName = currentPath.split('/').pop()?.replace('.md', '') || '';
         return currentName.length < shortestName.length ? current : shortest;
       });
-      console.log('[findFileFlexible] ✓ Found with strategy 5 (partial, shortest):', file.webkitRelativePath || file.name);
+      console.log('[findFileFlexible] ✓ Found with strategy 5 (partial, shortest):', getPath(file));
       return file;
     }
   }
@@ -386,14 +391,14 @@ export function findFileFlexible(files: readonly File[], targetPath: string): Fi
   const searchTerm = baseName?.toLowerCase().replace(/[-\s]/g, '') || '';
   const similarFiles = files
     .filter((f) => {
-      const filePath = f.webkitRelativePath || f.name;
+      const filePath = getPath(f);
       const fileBaseName = filePath.split('/').pop()?.replace('.md', '').toLowerCase().replace(/[-\s]/g, '') || '';
       return fileBaseName.includes(searchTerm.substring(0, 8)) || searchTerm.includes(fileBaseName.substring(0, 8));
     })
     .slice(0, 5);
   
   similarFiles.forEach((f) => {
-    console.log('[findFileFlexible]   Similar:', f.webkitRelativePath || f.name);
+    console.log('[findFileFlexible]   Similar:', getPath(f));
   });
   
   return file;

@@ -9,6 +9,24 @@
  */
 
 /**
+ * Safely extract a property from a file-like object
+ * Handles Firefox quirks where getters may throw errors
+ */
+function safeGetProperty<T>(obj: any, propName: string, defaultValue: T): T {
+  try {
+    if (propName in obj) {
+      const value = obj[propName];
+      if (value !== null && value !== undefined) {
+        return value;
+      }
+    }
+  } catch (e) {
+    // Property access threw an error (Firefox quirk)
+  }
+  return defaultValue;
+}
+
+/**
  * Gets the path from a File object or metadata object
  * Works cross-browser without relying on webkit-specific APIs directly
  * 
@@ -22,13 +40,23 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
   }
   
   // If it's a File object, try webkitRelativePath (cross-browser support)
-  const file = fileOrMeta as File;
-  if ('webkitRelativePath' in file && file.webkitRelativePath) {
-    return file.webkitRelativePath;
+  const file = fileOrMeta as any;
+  
+  // Try webkitRelativePath first
+  const webkitPath = safeGetProperty(file, 'webkitRelativePath', '');
+  if (typeof webkitPath === 'string' && webkitPath.length > 0) {
+    return webkitPath;
   }
   
   // Fallback to name
-  return file.name;
+  const name = safeGetProperty(file, 'name', '');
+  if (typeof name === 'string' && name.length > 0) {
+    return name;
+  }
+  
+  // Last resort
+  console.error('[getFilePath] Could not get path from file:', file);
+  return 'unknown-file';
 }
 
 /**
@@ -39,10 +67,10 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
  * @param files - Array of files to analyze
  * @returns Common root prefix or null if none detected
  */
-export function detectCommonRootPrefix(files: readonly File[]): string | null {
+export function detectCommonRootPrefix(files: readonly ({ path: string; name: string } | File)[]): string | null {
   if (files.length === 0) return null;
   
-  const paths = files.map(f => f.webkitRelativePath || f.name);
+  const paths = files.map(f => getFilePath(f as any));
   
   // Get the first path segment from each path
   const firstSegments = paths.map(p => p.split('/')[0]);
@@ -61,12 +89,14 @@ export function detectCommonRootPrefix(files: readonly File[]): string | null {
 }
 
 /**
- * Gets the storage path from a File object
+ * Gets the storage path from a file object
  * (webkitRelativePath or name)
  */
-function getStoragePath(file: File): string {
-  return file.webkitRelativePath || file.name;
+function getStoragePath(file: { path?: string; name: string } | File): string {
+  return getFilePath(file as any);
 }
+
+type FileWithPath = { path: string; name: string } | File;
 
 /**
  * Converts a display path (without prefix) to a storage path (with prefix if needed)
@@ -75,7 +105,7 @@ function getStoragePath(file: File): string {
  * @param displayPath - Path as shown in UI (e.g., "Leasingportal/file.md")
  * @returns Storage path for file lookup (e.g., "KK-Laaneportal.wiki/Leasingportal/file.md")
  */
-export function toStoragePath(files: readonly File[], displayPath: string): string {
+export function toStoragePath<T extends FileWithPath>(files: readonly T[], displayPath: string): string {
   const prefix = detectCommonRootPrefix(files);
   
   // If there's no common root prefix, display path === storage path
@@ -99,7 +129,7 @@ export function toStoragePath(files: readonly File[], displayPath: string): stri
  * @param storagePath - Path as stored in files (e.g., "KK-Laaneportal.wiki/Leasingportal/file.md")
  * @returns Display path for UI (e.g., "Leasingportal/file.md")
  */
-export function toDisplayPath(files: readonly File[], storagePath: string): string {
+export function toDisplayPath<T extends FileWithPath>(files: readonly T[], storagePath: string): string {
   const prefix = detectCommonRootPrefix(files);
   
   // If there's no common root prefix, display path === storage path
@@ -125,13 +155,13 @@ export function toDisplayPath(files: readonly File[], storagePath: string): stri
  * @param displayPath - Path as shown in UI
  * @returns File object or undefined if not found
  */
-export function getFileByDisplayPath(files: readonly File[], displayPath: string): File | undefined {
+export function getFileByDisplayPath<T extends FileWithPath>(files: readonly T[], displayPath: string): T | undefined {
   const prefix = detectCommonRootPrefix(files);
   const storagePath = toStoragePath(files, displayPath);
   
-  // Helper to try matching with various encoding variations
-  const tryMatch = (file: File, searchPath: string): boolean => {
-    const filePath = getStoragePath(file);
+  // Helper to try matching with various encoding variations and normalizations
+  const tryMatch = (file: T, searchPath: string): boolean => {
+    const filePath = getFilePath(file as any);
     
     // Direct match
     if (filePath === searchPath) return true;
@@ -143,6 +173,17 @@ export function getFileByDisplayPath(files: readonly File[], displayPath: string
       if (decodeURIComponent(filePath) === decodeURIComponent(searchPath)) return true;
     } catch (e) {
       // Ignore encoding errors
+    }
+    
+    // Try Unicode normalization (for characters like æ, ø, å)
+    try {
+      const normalizedFilePath = filePath.normalize('NFC');
+      const normalizedSearchPath = searchPath.normalize('NFC');
+      if (normalizedFilePath === normalizedSearchPath) return true;
+      if (decodeURIComponent(normalizedFilePath) === normalizedSearchPath) return true;
+      if (normalizedFilePath === decodeURIComponent(normalizedSearchPath)) return true;
+    } catch (e) {
+      // Ignore normalization errors
     }
     
     return false;
@@ -169,8 +210,14 @@ export function getFileByDisplayPath(files: readonly File[], displayPath: string
   console.error('[PathManager] File not found for display path:', displayPath);
   console.error('[PathManager] Tried storage path:', storagePath);
   console.error('[PathManager] Common root prefix:', prefix);
-  console.error('[PathManager] Available files (first 10):', 
-    files.slice(0, 10).map(f => getStoragePath(f)));
+  console.error('[PathManager] Total files available:', files.length);
+  console.error('[PathManager] First 10 file paths:', 
+    files.slice(0, 10).map(f => {
+      const path = getFilePath(f as any);
+      return `"${path}" (name: "${f.name}")`;
+    }));
+  console.error('[PathManager] Looking for files with similar names:',
+    files.filter(f => f.name.includes(displayPath.split('/').pop() || '')).slice(0, 5).map(f => getFilePath(f as any)));
   
   return undefined;
 }
@@ -182,7 +229,7 @@ export function getFileByDisplayPath(files: readonly File[], displayPath: string
  * @param file - File object
  * @returns Display path (without prefix)
  */
-export function normalizeFilePath(files: readonly File[], file: File): string {
-  const storagePath = getStoragePath(file);
+export function normalizeFilePath<T extends FileWithPath>(files: readonly T[], file: T): string {
+  const storagePath = getFilePath(file as any);
   return toDisplayPath(files, storagePath);
 }

@@ -11,12 +11,22 @@ import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { expose } from 'comlink';
 
 const FILE_CONTENTS_DB_NAME = 'wiki-file-contents';
-const FILE_CONTENTS_DB_VERSION = 1;
+const FILE_CONTENTS_DB_VERSION = 3;
 
 /**
- * IndexedDB schema for file contents
+ * IndexedDB schema for file contents (must match main thread schema)
  */
 interface FileContentsDB extends DBSchema {
+  'metadata': {
+    key: string;
+    value: {
+      path: string;
+      name: string;
+      size: number;
+      lastModified: number;
+      type: string;
+    };
+  };
   'contents': {
     key: string;
     value: {
@@ -63,10 +73,18 @@ class ContentSearchWorker {
   private async getDB(): Promise<IDBPDatabase<FileContentsDB>> {
     if (!this.db) {
       this.db = await openDB<FileContentsDB>(FILE_CONTENTS_DB_NAME, FILE_CONTENTS_DB_VERSION, {
-        upgrade(db) {
+        upgrade(db, oldVersion) {
+          // Create metadata store for lightweight file info (tree rendering)
+          if (!db.objectStoreNames.contains('metadata')) {
+            db.createObjectStore('metadata', { keyPath: 'path' });
+          }
+          
+          // Create/update contents store for file text content (on-demand loading)
           if (!db.objectStoreNames.contains('contents')) {
             db.createObjectStore('contents', { keyPath: 'path' });
           }
+          
+          console.log(`[ContentSearchWorker] Upgraded DB from version ${oldVersion} to ${FILE_CONTENTS_DB_VERSION}`);
         },
       });
     }

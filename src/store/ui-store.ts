@@ -97,13 +97,19 @@ export function toggleExpandDir(path: string) {
   const state = wikiStates.get(currentWiki)!;
   const wasPreviouslyExpanded = state.expandedDirs.has(path);
   
+  // Create a new Set to trigger Valtio reactivity (Sets are not deeply tracked)
+  const newExpandedDirs = new Set(state.expandedDirs);
+  
   if (wasPreviouslyExpanded) {
-    state.expandedDirs.delete(path);
+    newExpandedDirs.delete(path);
     console.log('[toggleExpandDir] Collapsed:', path);
   } else {
-    state.expandedDirs.add(path);
+    newExpandedDirs.add(path);
     console.log('[toggleExpandDir] Expanded:', path);
   }
+  
+  // Replace the Set to trigger re-render
+  state.expandedDirs = newExpandedDirs;
   
   console.log('[toggleExpandDir] New expandedDirs:', Array.from(state.expandedDirs));
 }
@@ -127,7 +133,8 @@ export function clearExpandedDirs() {
     wikiStates.set(currentWiki, loadWikiState(currentWiki));
   }
   
-  wikiStates.get(currentWiki)!.expandedDirs.clear();
+  // Create new empty Set to trigger Valtio reactivity
+  wikiStates.get(currentWiki)!.expandedDirs = new Set();
 }
 
 // Subscribe to changes and sync to sessionStorage

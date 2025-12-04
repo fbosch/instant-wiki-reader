@@ -109,7 +109,7 @@ function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImage
       if (!resolvedPath) return;
       
       try {
-        let file: File | undefined;
+        let file: File | Blob | undefined;
 
         // Try File System Access API first if available
         if (rootHandle) {
@@ -217,7 +217,10 @@ function MarkdownLink({ href, children, ...props }: React.AnchorHTMLAttributes<H
           return match(localFile)
             .with(P.not(P.nullish), (file) => {
               e.preventDefault();
-              const localFilePath = file.webkitRelativePath || file.name;
+              // Handle both File and FileWrapper
+              const localFilePath = 'path' in file && typeof file.path === 'string' 
+                ? file.path 
+                : (file as any).webkitRelativePath || file.name;
               console.log('[MarkdownLink] Found local file:', localFilePath);
               openFile(localFilePath).catch((error) => {
                 console.error('Failed to open local file:', error);

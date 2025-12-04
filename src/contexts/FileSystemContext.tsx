@@ -96,69 +96,88 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   // Check for saved directory on mount
   useEffect(() => {
     async function checkSavedDirectory() {
-      if (!isFileSystemAccessSupported()) {
-        // Firefox/Safari: try to load cached metadata only (fast)
-        const cached = await loadCachedFileMetadata();
-        
-        if (cached) {
-          console.log('[FileSystemContext] Loaded cached metadata for fallback browser');
-          
-          // Build tree from metadata on main thread (fast, no File objects)
-          const tree = buildDirectoryTreeFromMetadata(cached.files);
-          setDirectoryTree(tree);
-          setWikiName(cached.wikiName);
-          setPermissionState('granted');
-          setLastRefresh(Date.now());
-          
-          // Build search index in background (will load content from IndexedDB as needed)
-          if (contentSearchWorker) {
-            contentSearchWorker.buildIndex().then((result) => {
-              console.log('[FileSystemContext] Search index built from cache:', result);
-            }).catch((error) => {
-              console.error('[FileSystemContext] Error building search index:', error);
-            });
-          }
-        }
-        
-        setIsInitializing(false);
-        return;
-      }
-
-      // Chrome/Edge: try to restore directory handle
-      const startTime = Date.now();
-      const savedHandle = await getSavedDirectoryHandle();
-      
-      if (!savedHandle) {
-        // Only show welcome screen if initialization took more than 100ms
-        const elapsed = Date.now() - startTime;
-        if (elapsed < 100) {
-          await new Promise(resolve => setTimeout(resolve, 100 - elapsed));
-        }
-        setIsInitializing(false);
-        return;
-      }
-
-      setRootHandle(savedHandle);
-      setPermissionState('granted');
-      
-      // Get and set wiki name
-      const wikiNameValue = await getWikiName(savedHandle);
-      setWikiName(wikiNameValue);
-      
-      // Auto-load the directory
       try {
-        setIsScanning(true);
-        const files = await readDirectory(savedHandle);
-        setAllFiles(files);
+        if (!isFileSystemAccessSupported()) {
+          // Firefox/Safari: try to load cached metadata only (fast)
+          console.log('[FileSystemContext] Checking for cached metadata (fallback browser)');
+          
+          // Add timeout to prevent infinite loading
+          const timeoutPromise = new Promise<null>((resolve) => {
+            setTimeout(() => {
+              console.warn('[FileSystemContext] Cache load timeout, showing welcome screen');
+              resolve(null);
+            }, 5000);
+          });
+          
+          const cached = await Promise.race([loadCachedFileMetadata(), timeoutPromise]);
+          
+          if (cached) {
+            console.log('[FileSystemContext] Loaded cached metadata for fallback browser');
+            
+            // Build tree from metadata on main thread (fast, no File objects)
+            const tree = buildDirectoryTreeFromMetadata(cached.files);
+            setDirectoryTree(tree);
+            setWikiName(cached.wikiName);
+            setPermissionState('granted');
+            setLastRefresh(Date.now());
+            
+            // Build search index in background (will load content from IndexedDB as needed)
+            if (contentSearchWorker) {
+              contentSearchWorker.buildIndex().then((result) => {
+                console.log('[FileSystemContext] Search index built from cache:', result);
+              }).catch((error) => {
+                console.error('[FileSystemContext] Error building search index:', error);
+              });
+            }
+          } else {
+            console.log('[FileSystemContext] No cached metadata found, showing welcome screen');
+          }
+          
+          setIsInitializing(false);
+          return;
+        }
+
+        // Chrome/Edge: try to restore directory handle
+        console.log('[FileSystemContext] Checking for saved directory handle');
+        const startTime = Date.now();
+        const savedHandle = await getSavedDirectoryHandle();
         
-        // Build tree on main thread
-        const tree = buildDirectoryTree(files);
-        setDirectoryTree(tree);
-        setLastRefresh(Date.now());
+        if (!savedHandle) {
+          console.log('[FileSystemContext] No saved handle found, showing welcome screen');
+          // Only show welcome screen if initialization took more than 100ms
+          const elapsed = Date.now() - startTime;
+          if (elapsed < 100) {
+            await new Promise(resolve => setTimeout(resolve, 100 - elapsed));
+          }
+          setIsInitializing(false);
+          return;
+        }
+
+        setRootHandle(savedHandle);
+        setPermissionState('granted');
+        
+        // Get and set wiki name
+        const wikiNameValue = await getWikiName(savedHandle);
+        setWikiName(wikiNameValue);
+        
+        // Auto-load the directory
+        try {
+          setIsScanning(true);
+          const files = await readDirectory(savedHandle);
+          setAllFiles(files);
+          
+          // Build tree on main thread
+          const tree = buildDirectoryTree(files);
+          setDirectoryTree(tree);
+          setLastRefresh(Date.now());
+        } catch (error) {
+          console.error(ERROR_MESSAGES.LOAD_FAILED, error);
+        } finally {
+          setIsScanning(false);
+          setIsInitializing(false);
+        }
       } catch (error) {
-        console.error(ERROR_MESSAGES.LOAD_FAILED, error);
-      } finally {
-        setIsScanning(false);
+        console.error('[FileSystemContext] Initialization error:', error);
         setIsInitializing(false);
       }
     }
@@ -272,7 +291,35 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
 
         // Try to load from IndexedDB first (for cached/Firefox mode)
         const { getFileContentFromCache } = await import('@/lib/file-system');
-        const cachedContent = await getFileContentFromCache(path);
+        let cachedContent = await getFileContentFromCache(path);
+        
+        // If not found and we have a directory tree, try to find the full path
+        if (cachedContent === null && fileSystemStore.directoryTree) {
+          const tree = fileSystemStore.directoryTree;
+          const commonPrefix = (tree as any)._commonRootPrefix;
+          
+          // Try with common root prefix if it exists
+          if (commonPrefix && !path.startsWith(commonPrefix + '/')) {
+            const pathWithPrefix = `${commonPrefix}/${path}`;
+            console.log('[openFile] Trying with prefix:', pathWithPrefix);
+            cachedContent = await getFileContentFromCache(pathWithPrefix);
+            
+            if (cachedContent !== null) {
+              // Update path to the one that worked
+              path = pathWithPrefix;
+            }
+          } else if (commonPrefix && path.startsWith(commonPrefix + '/')) {
+            // Try without prefix
+            const pathWithoutPrefix = path.slice(commonPrefix.length + 1);
+            console.log('[openFile] Trying without prefix:', pathWithoutPrefix);
+            const contentWithoutPrefix = await getFileContentFromCache(pathWithoutPrefix);
+            
+            if (contentWithoutPrefix !== null) {
+              cachedContent = contentWithoutPrefix;
+              // Keep the original path (with prefix) for consistency
+            }
+          }
+        }
         
         if (cachedContent !== null) {
           console.log('[openFile] Loaded from IndexedDB cache:', path);
@@ -338,7 +385,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           return name.includes(lowerQuery);
         })
         .map((file) => ({
-          path: file.webkitRelativePath || file.name,
+          path: getFilePath(file),
           title: file.name,
           headings: [],
           keywords: [],

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useDeferredValue } from 'react';
+import { useState } from 'react';
 import { Search, X } from 'lucide-react';
 import type { DirectoryNode } from '@/types';
 
@@ -68,44 +68,17 @@ function filterTree(node: DirectoryNode, query: string): DirectoryNode | null {
  */
 export function FileNameSearch({ tree, onFilter }: FileNameSearchProps) {
   const [query, setQuery] = useState('');
-  
-  // Defer the query value to keep input responsive
-  const deferredQuery = useDeferredValue(query);
-
-  // Filter tree based on deferred query (memoized)
-  const filteredTree = useMemo(() => {
-    // No query = return null (use original tree in parent)
-    if (!tree || !deferredQuery.trim()) {
-      return null;
-    }
-    
-    // Filter the root node's children
-    if (!tree.children) {
-      return tree;
-    }
-    
-    const filteredChildren = tree.children
-      .map(child => filterTree(child, deferredQuery.trim()))
-      .filter((child): child is DirectoryNode => child !== null);
-    
-    // Return a new root with filtered children (even if empty)
-    return {
-      ...tree,
-      children: filteredChildren,
-    };
-  }, [tree, deferredQuery]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newQuery = e.target.value;
     setQuery(newQuery);
     
-    // Calculate filtered tree and notify parent immediately
-    // This happens in the event handler, not during render
+    // Calculate filtered tree and notify parent
     const trimmedQuery = newQuery.trim();
     if (!tree || !trimmedQuery) {
       onFilter(null, trimmedQuery);
     } else {
-      // We need to compute the filtered tree here since deferredQuery hasn't updated yet
+      // Filter the root node's children
       if (!tree.children) {
         onFilter(tree, trimmedQuery);
       } else {
