@@ -16,7 +16,7 @@ import { useEffect, Suspense, useState, useCallback, useSyncExternalStore } from
 import { useHotkeys } from 'react-hotkeys-hook';
 import type { DirectoryNode } from '@/types';
 import { useSnapshot } from 'valtio';
-import { themeStore, colorThemes } from '@/store/theme-store';
+import { themeStore, colorThemes, contentWidthValues } from '@/store/theme-store';
 
 // Subscribe to hash changes for text fragment highlighting
 function subscribeToHashChanges(callback: () => void) {
@@ -49,7 +49,7 @@ function HomeContent() {
   const currentHash = useSyncExternalStore(subscribeToHashChanges, getHash, getServerHash);
   
   // Get theme settings
-  const { fontFamily, fontSize, lineHeight, colorTheme } = useSnapshot(themeStore);
+  const { fontFamily, fontSize, lineHeight, colorTheme, contentWidth, centerContent } = useSnapshot(themeStore);
 
   // Set up URL update callback
   useEffect(() => {
@@ -344,9 +344,22 @@ function HomeContent() {
       {/* Main content area */}
       <main className="flex-1 overflow-y-auto h-full" style={{ backgroundColor: theme.bg }}>
         {ctx.currentFile ? (
-          <div className="flex gap-8 w-full mx-auto p-8 pr-4">
+          <div 
+            className="flex gap-8 w-full p-8 pr-4"
+            style={{
+              marginLeft: centerContent ? 'auto' : '0',
+              marginRight: centerContent ? 'auto' : '0',
+              maxWidth: contentWidth === 'full' ? '100%' : `calc(${contentWidthValues[contentWidth]} + 18rem + 2rem)`, // content + TOC + gap
+            }}
+          >
             {/* Main content - uses available space */}
-            <div className="flex-1 min-w-0 max-w-5xl" style={contentStyle}>
+            <div 
+              className="flex-1 min-w-0" 
+              style={{
+                ...contentStyle,
+                maxWidth: contentWidth === 'full' ? '100%' : contentWidthValues[contentWidth],
+              }}
+            >
               <div className="mb-6">
                 <h1 className="text-3xl font-bold mb-2" style={{ color: theme.text }}>
                   {formatFileName(ctx.currentFile.path.split('/').pop() || '', true)}

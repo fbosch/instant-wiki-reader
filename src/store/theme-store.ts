@@ -2,12 +2,15 @@ import { proxy, subscribe } from 'valtio';
 
 export type FontFamily = 'sans' | 'serif';
 export type ColorTheme = 'light' | 'sepia' | 'dark' | 'black';
+export type ContentWidth = 'narrow' | 'medium' | 'wide' | 'full';
 
 interface ThemeState {
   fontFamily: FontFamily;
   fontSize: number; // 0.8 to 1.4
   lineHeight: number; // 1.4 to 2.0
   colorTheme: ColorTheme;
+  contentWidth: ContentWidth;
+  centerContent: boolean;
 }
 
 // Load from localStorage
@@ -18,13 +21,24 @@ function loadThemeFromStorage(): ThemeState {
       fontSize: 1.0,
       lineHeight: 1.6,
       colorTheme: 'dark',
+      contentWidth: 'wide',
+      centerContent: true,
     };
   }
 
   try {
     const stored = localStorage.getItem('theme-settings');
     if (stored) {
-      return JSON.parse(stored);
+      const parsed = JSON.parse(stored);
+      // Provide defaults for new properties if not present
+      return {
+        fontFamily: parsed.fontFamily || 'sans',
+        fontSize: parsed.fontSize || 1.0,
+        lineHeight: parsed.lineHeight || 1.6,
+        colorTheme: parsed.colorTheme || 'dark',
+        contentWidth: parsed.contentWidth || 'wide',
+        centerContent: parsed.centerContent !== undefined ? parsed.centerContent : true,
+      };
     }
   } catch (error) {
     console.error('Failed to load theme settings:', error);
@@ -35,6 +49,8 @@ function loadThemeFromStorage(): ThemeState {
     fontSize: 1.0,
     lineHeight: 1.6,
     colorTheme: 'dark',
+    contentWidth: 'wide',
+    centerContent: true,
   };
 }
 
@@ -68,6 +84,22 @@ export function setLineHeight(height: number) {
 export function setColorTheme(theme: ColorTheme) {
   themeStore.colorTheme = theme;
 }
+
+export function setContentWidth(width: ContentWidth) {
+  themeStore.contentWidth = width;
+}
+
+export function setCenterContent(center: boolean) {
+  themeStore.centerContent = center;
+}
+
+// Content width values in pixels (max-width)
+export const contentWidthValues = {
+  narrow: '45rem',   // ~720px - optimal for reading
+  medium: '65rem',   // ~1040px - comfortable
+  wide: '90rem',     // ~1440px - spacious
+  full: '100%',      // Full width
+} as const;
 
 // Theme configurations for different color themes
 export const colorThemes = {

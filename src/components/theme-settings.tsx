@@ -1,7 +1,7 @@
 'use client';
 
 import { Menu, MenuButton, MenuItems } from '@headlessui/react';
-import { Type } from 'lucide-react';
+import { Type, AlignCenter, RectangleHorizontal } from 'lucide-react';
 import { useSnapshot } from 'valtio';
 import { 
   themeStore, 
@@ -9,12 +9,15 @@ import {
   setFontSize, 
   setLineHeight, 
   setColorTheme,
+  setContentWidth,
+  setCenterContent,
   colorThemes,
-  type ColorTheme 
+  type ColorTheme,
+  type ContentWidth,
 } from '@/store/theme-store';
 
 export function ThemeSettings() {
-  const { fontFamily, fontSize, lineHeight, colorTheme } = useSnapshot(themeStore);
+  const { fontFamily, fontSize, lineHeight, colorTheme, contentWidth, centerContent } = useSnapshot(themeStore);
   const theme = colorThemes[colorTheme];
 
   return (
@@ -168,6 +171,64 @@ export function ThemeSettings() {
                   />
                 ))}
               </div>
+            </div>
+
+            {/* Divider */}
+            <div className="h-px" style={{ backgroundColor: theme.border }} />
+
+            {/* Content Width */}
+            <div>
+              <label className="flex items-center justify-between text-xs font-medium mb-2" style={{ color: theme.text }}>
+                <span>Content Width</span>
+                <span style={{ color: theme.secondary }}>
+                  {contentWidth.charAt(0).toUpperCase() + contentWidth.slice(1)}
+                </span>
+              </label>
+              <div className="flex items-center gap-3">
+                <RectangleHorizontal className="w-3 h-3 flex-shrink-0" style={{ color: theme.secondary }} />
+                <input
+                  type="range"
+                  min="0"
+                  max="3"
+                  step="1"
+                  value={
+                    contentWidth === 'narrow' ? 0 :
+                    contentWidth === 'medium' ? 1 :
+                    contentWidth === 'wide' ? 2 : 3
+                  }
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value);
+                    const widths: ContentWidth[] = ['narrow', 'medium', 'wide', 'full'];
+                    setContentWidth(widths[value]);
+                  }}
+                  className="flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                  style={{ backgroundColor: theme.code }}
+                />
+                <RectangleHorizontal className="w-5 h-5 flex-shrink-0" style={{ color: theme.secondary }} />
+              </div>
+            </div>
+
+            {/* Center Content */}
+            <div>
+              <label className="flex items-center justify-between cursor-pointer">
+                <span className="text-xs font-medium" style={{ color: theme.text }}>
+                  Center Content
+                </span>
+                <button
+                  onClick={() => setCenterContent(!centerContent)}
+                  className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+                  style={{ backgroundColor: centerContent ? '#3b82f6' : theme.border }}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      centerContent ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </label>
+              <p className="text-xs mt-1" style={{ color: theme.secondary }}>
+                Centers the content horizontally when enabled
+              </p>
             </div>
           </div>
         </MenuItems>
