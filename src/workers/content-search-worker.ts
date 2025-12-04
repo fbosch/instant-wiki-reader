@@ -1,7 +1,10 @@
 /**
  * Content Search Worker
  * 
- * Uses MiniSearch for full-text search through markdown file contents.
+ * Provides two search methods:
+ * 1. Full-text search using MiniSearch (fuzzy, ranked)
+ * 2. Regex search using netgrep WASM + JS context extraction
+ * 
  * Accesses IndexedDB directly to avoid blocking the main thread.
  * Exposed via Comlink for easy async API.
  */
@@ -12,6 +15,9 @@ import { expose } from 'comlink';
 
 const FILE_CONTENTS_DB_NAME = 'wiki-file-contents';
 const FILE_CONTENTS_DB_VERSION = 3;
+
+// Dynamic WASM module import
+let searchBytesModule: ((chunk: Uint8Array, pattern: string) => boolean) | null = null;
 
 /**
  * IndexedDB schema for file contents (must match main thread schema)
@@ -38,7 +44,7 @@ interface FileContentsDB extends DBSchema {
 }
 
 /**
- * Search result with context
+ * Search result with context (for full-text search)
  */
 export interface SearchResult {
   path: string;
@@ -48,6 +54,26 @@ export interface SearchResult {
     [field: string]: string[];
   };
   terms: string[];
+}
+
+/**
+ * Match context for a single line
+ */
+export interface MatchContext {
+  lineNumber: number;
+  line: string;
+  matchStart: number;
+  matchEnd: number;
+}
+
+/**
+ * Regex search result with line context
+ */
+export interface RegexSearchResult {
+  path: string;
+  title: string;
+  matches: MatchContext[];
+  matchCount: number;
 }
 
 /**
@@ -226,6 +252,109 @@ class ContentSearchWorker {
     this.searchEngine = null;
     this.indexedFileCount = 0;
     console.log('[ContentSearchWorker] Index cleared');
+  }
+
+  /**
+   * Search file contents using WASM-powered regex matching
+   * Uses netgrep's ripgrep WASM for fast pattern detection,
+   * then extracts context using JavaScript for detailed results
+   */
+  async regexSearch(pattern: string, options?: { 
+    maxResults?: number;
+    contextLines?: number;
+  }): Promise<RegexSearchResult[]> {
+    if (!pattern || pattern.trim().length === 0) {
+      return [];
+    }
+
+    const maxResults = options?.maxResults || 100;
+    const results: RegexSearchResult[] = [];
+
+    try {
+      console.log(`[ContentSearchWorker] Regex searching for: "${pattern}"`);
+
+      // Load all files from IndexedDB
+      const db = await this.getDB();
+      const allFiles = await db.getAll('contents');
+
+      console.log(`[ContentSearchWorker] Searching ${allFiles.length} files`);
+
+      // Convert pattern to regex for context extraction
+      let regex: RegExp;
+      try {
+        regex = new RegExp(pattern, 'gi');
+      } catch (e) {
+        console.error('[ContentSearchWorker] Invalid regex pattern:', e);
+        return [];
+      }
+
+      // Search each file
+      for (const file of allFiles) {
+        if (results.length >= maxResults) {
+          break;
+        }
+
+        // First, use WASM for fast detection if available
+        let hasMatch = false;
+        
+        if (!searchBytesModule) {
+          try {
+            // @ts-ignore - Dynamic WASM import
+            const module = await import('@netgrep/search');
+            searchBytesModule = module.search_bytes;
+          } catch (e) {
+            console.warn('[ContentSearchWorker] WASM module not available, falling back to regex-only search');
+            // Fallback: use regex directly
+            regex.lastIndex = 0;
+            hasMatch = regex.test(file.content);
+          }
+        }
+        
+        if (searchBytesModule) {
+          const textEncoder = new TextEncoder();
+          const bytes = textEncoder.encode(file.content);
+          hasMatch = searchBytesModule(bytes, pattern);
+        }
+
+        if (!hasMatch) {
+          continue;
+        }
+
+        // If WASM detected a match, extract context with JS
+        const matches: MatchContext[] = [];
+        const lines = file.content.split('\n');
+
+        lines.forEach((line, index) => {
+          // Reset regex lastIndex for global regex
+          regex.lastIndex = 0;
+          const match = regex.exec(line);
+
+          if (match) {
+            matches.push({
+              lineNumber: index + 1,
+              line: line,
+              matchStart: match.index,
+              matchEnd: match.index + match[0].length,
+            });
+          }
+        });
+
+        if (matches.length > 0) {
+          results.push({
+            path: file.path,
+            title: this.extractTitle(file.path, file.content),
+            matches: matches,
+            matchCount: matches.length,
+          });
+        }
+      }
+
+      console.log(`[ContentSearchWorker] Found ${results.length} files with matches`);
+      return results;
+    } catch (error) {
+      console.error('[ContentSearchWorker] Regex search error:', error);
+      return [];
+    }
   }
 }
 

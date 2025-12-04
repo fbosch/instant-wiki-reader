@@ -357,7 +357,7 @@ function MarkdownLink({
 }
 
 /**
- * Preprocesses markdown content to fix common formatting issues and enhance Azure DevOps integration.
+ * Preprocess markdown content before rendering.
  * - Fixes headers without spaces (e.g., ##Header -> ## Header)
  * - Converts Azure DevOps work item references (#12345) to clickable links
  *
@@ -369,6 +369,12 @@ function preprocessMarkdown(
   content: string,
   azureDevOpsBaseUrl?: string,
 ): string {
+  // Guard against non-string content
+  if (typeof content !== 'string') {
+    console.error('[preprocessMarkdown] Content is not a string:', typeof content, content);
+    return '';
+  }
+  
   let processed = content;
 
   // Fix headers without space after # symbols
@@ -494,6 +500,12 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   className,
 }: MarkdownRendererProps) {
   const { azureDevOpsContext } = useFileSystem();
+
+  // Guard against invalid content
+  if (!content || typeof content !== 'string') {
+    console.error('[MarkdownRenderer] Invalid content:', typeof content, content);
+    return <div className="text-red-500">Error: Invalid content</div>;
+  }
 
   // Build Azure DevOps base URL for work items
   const azureDevOpsBaseUrl = azureDevOpsContext

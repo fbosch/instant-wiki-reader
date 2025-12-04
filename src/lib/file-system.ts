@@ -59,7 +59,7 @@ interface FileContentsDB extends DBSchema {
     key: string; // file path
     value: {
       path: string;
-      content: ArrayBuffer; // Store as ArrayBuffer for speed
+      content: string | ArrayBuffer; // string (new) or ArrayBuffer (legacy)
       lastModified: number;
     };
   };
@@ -288,17 +288,17 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
     for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {
       const batch = mdFiles.slice(i, Math.min(i + BATCH_SIZE, mdFiles.length));
       
-      // Read all file contents as ArrayBuffer FIRST (outside transaction to avoid timeout)
+      // Read all file contents as text FIRST (outside transaction to avoid timeout)
       const contentsToWrite: Array<{
         path: string;
-        content: ArrayBuffer;
+        content: string;
         lastModified: number;
       }> = [];
       
       for (const file of batch) {
         try {
           const path = getFilePath(file);
-          const content = await file.arrayBuffer(); // Read as ArrayBuffer (faster than text)
+          const content = await file.text(); // Read as text for search indexing
           contentsToWrite.push({
             path,
             content,
@@ -833,17 +833,21 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
   try {
     const db = await getFileContentsDB();
     
-    // Helper to decode ArrayBuffer to string
-    const decodeContent = (buffer: ArrayBuffer): string => {
+    // Helper to handle both string and ArrayBuffer (for backwards compatibility)
+    const getContentAsString = (content: string | ArrayBuffer): string => {
+      if (typeof content === 'string') {
+        return content;
+      }
+      // Legacy ArrayBuffer format - decode it
       const decoder = new TextDecoder('utf-8');
-      return decoder.decode(buffer);
+      return decoder.decode(content);
     };
     
     // Try direct lookup first
     let cached = await db.get('contents', path);
     
     if (cached && cached.content) {
-      return decodeContent(cached.content);
+      return getContentAsString(cached.content);
     }
     
     // Try with URL decoding
@@ -852,7 +856,7 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
       if (decodedPath !== path) {
         cached = await db.get('contents', decodedPath);
         if (cached && cached.content) {
-          return decodeContent(cached.content);
+          return getContentAsString(cached.content);
         }
       }
     } catch (e) {
@@ -865,7 +869,7 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
       if (normalizedPath !== path) {
         cached = await db.get('contents', normalizedPath);
         if (cached && cached.content) {
-          return decodeContent(cached.content);
+          return getContentAsString(cached.content);
         }
       }
       
@@ -874,7 +878,7 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
       if (normalizedDecodedPath !== normalizedPath) {
         cached = await db.get('contents', normalizedDecodedPath);
         if (cached && cached.content) {
-          return decodeContent(cached.content);
+          return getContentAsString(cached.content);
         }
       }
     } catch (e) {
@@ -895,7 +899,7 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
       
       if (match && match.content) {
         console.warn('[getFileContentFromCache] Path mismatch - requested:', path, 'found:', match.path);
-        return decodeContent(match.content);
+        return getContentAsString(match.content);
       }
     }
     

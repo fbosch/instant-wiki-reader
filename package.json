@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@netgrep/netgrep": "^0.1.5",
+    "@netgrep/search": "^0.1.5",
     "@react-aria/focus": "^3.21.2",
     "@react-aria/tree": "^3.1.4",
     "@react-aria/utils": "^3.31.0",
