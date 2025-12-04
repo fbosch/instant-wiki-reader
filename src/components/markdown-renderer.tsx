@@ -8,7 +8,6 @@ import {
   createElement,
   useMemo,
   useRef,
-  useSyncExternalStore,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -22,6 +21,7 @@ import { getFileByDisplayPath } from "@/lib/path-manager";
 import mermaid from "mermaid";
 import type { FontFamily, ColorTheme } from "@/store/theme-store";
 import { colorThemes } from "@/store/theme-store";
+import { useUrlState } from "@/hooks/use-url-state";
 
 interface MarkdownRendererProps {
   content: string;
@@ -32,43 +32,6 @@ interface MarkdownRendererProps {
     fontSize: number;
     lineHeight: number;
   };
-}
-
-/**
- * Subscribe to hash changes
- */
-function subscribeToHash(callback: () => void): () => void {
-  window.addEventListener('hashchange', callback);
-  return () => window.removeEventListener('hashchange', callback);
-}
-
-/**
- * Get current hash
- */
-function getHash(): string {
-  return typeof window !== 'undefined' ? window.location.hash : '';
-}
-
-/**
- * Server snapshot (no hash on server)
- */
-function getServerHash(): string {
-  return '';
-}
-
-/**
- * Extract text fragment from hash
- */
-function extractTextFragment(hash: string): string | null {
-  const match = hash.match(/#:~:text=(.+)/);
-  if (match) {
-    try {
-      return decodeURIComponent(match[1].replace(/%2D/g, '-'));
-    } catch {
-      return match[1];
-    }
-  }
-  return null;
 }
 
 /**
@@ -655,12 +618,16 @@ function preprocessMarkdown(
  */
 function highlightTextFragment(content: string, textFragment: string | null | undefined): string {
   if (!textFragment || !content) {
+    console.log('[highlightTextFragment] Skipping - no textFragment or content:', { textFragment, hasContent: !!content });
     return content;
   }
 
   try {
+    console.log('[highlightTextFragment] Highlighting text:', textFragment);
+    
     // Escape special regex characters in the search text
     const escapedFragment = textFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    console.log('[highlightTextFragment] Escaped fragment:', escapedFragment);
     
     // Create regex to match the text (case-insensitive, global)
     const regex = new RegExp(`(${escapedFragment})`, 'gi');
@@ -683,9 +650,17 @@ function highlightTextFragment(content: string, textFragment: string | null | un
       return `__INLINE_CODE_${inlineCode.length - 1}__`;
     });
     
+    // Test if pattern matches
+    const testMatch = regex.test(protectedContent);
+    console.log('[highlightTextFragment] Pattern matches content:', testMatch);
+    regex.lastIndex = 0; // Reset regex
+    
     // Apply highlighting with <mark class="text-fragment-highlight">
     // Using a class so we can style it consistently
     const highlighted = protectedContent.replace(regex, '<mark class="text-fragment-highlight">$1</mark>');
+    
+    const matchCount = (highlighted.match(/<mark class="text-fragment-highlight">/g) || []).length;
+    console.log('[highlightTextFragment] Added', matchCount, 'highlight markers');
     
     // Restore code blocks
     let restored = highlighted;
@@ -697,6 +672,8 @@ function highlightTextFragment(content: string, textFragment: string | null | un
     inlineCode.forEach((code, index) => {
       restored = restored.replace(`__INLINE_CODE_${index}__`, code);
     });
+    
+    console.log('[highlightTextFragment] Sample of highlighted content:', restored.substring(0, 300));
     
     return restored;
   } catch (error) {
@@ -761,10 +738,12 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   themeConfig,
 }: MarkdownRendererProps) {
   const { azureDevOpsContext } = useFileSystem();
+  const { getHighlightFromUrl } = useUrlState();
   
-  // Subscribe to hash changes to get text fragment
-  const currentHash = useSyncExternalStore(subscribeToHash, getHash, getServerHash);
-  const textFragment = extractTextFragment(currentHash);
+  // Get highlight text from URL query parameter
+  const textFragment = getHighlightFromUrl();
+  
+  console.log('[MarkdownRenderer] textFragment from URL:', textFragment);
   
   // Extract theme colors
   const colors = themeConfig 

@@ -72,7 +72,7 @@ function HighlightedSnippet({ html }: { html: string }) {
         segment.isHighlight ? (
           <mark
             key={index}
-            className="bg-yellow-200 dark:bg-yellow-500/30 text-slate-900 dark:text-yellow-200 px-1 py-0.5 rounded font-semibold border border-yellow-400/30 dark:border-yellow-500/50"
+            className="bg-amber-600 dark:bg-amber-500/40 text-white dark:text-amber-100 px-1 py-0.5 rounded font-semibold border border-amber-900/60 dark:border-amber-500/70"
           >
             {segment.text}
           </mark>

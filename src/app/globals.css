@@ -28,37 +28,37 @@ body {
 /* Text fragment highlighting (browser's ::target-text pseudo-element) */
 /* Match the search result highlighting style */
 ::target-text {
-  background-color: rgb(254 240 138) !important; /* yellow-200 */
-  color: rgb(17 24 39) !important; /* slate-900 */
+  background-color: rgb(217 119 6) !important; /* amber-600 - dark, rich */
+  color: rgb(255 255 255) !important; /* white text for maximum contrast */
   padding: 0.125rem 0.25rem !important; /* px-1 py-0.5 */
   border-radius: 0.25rem !important; /* rounded */
   font-weight: 600 !important; /* font-semibold */
-  border: 1px solid rgba(250, 204, 21, 0.3) !important; /* border-yellow-400/30 */
+  border: 1px solid rgba(120, 53, 15, 0.6) !important; /* amber-900/60 - very dark border */
 }
 
 @media (prefers-color-scheme: dark) {
   ::target-text {
-    background-color: rgba(234, 179, 8, 0.3) !important; /* yellow-500/30 */
-    color: rgb(254 240 138) !important; /* yellow-200 */
-    border-color: rgba(234, 179, 8, 0.5) !important; /* yellow-500/50 */
+    background-color: rgba(245, 158, 11, 0.4) !important; /* amber-500/40 */
+    color: rgb(254 243 199) !important; /* amber-100 */
+    border-color: rgba(245, 158, 11, 0.7) !important; /* amber-500/70 */
   }
 }
 
 /* Manual text fragment highlighting (for client-side navigation) */
 mark.text-fragment-highlight {
-  background-color: rgb(254 240 138); /* yellow-200 */
-  color: rgb(17 24 39); /* slate-900 */
+  background-color: rgb(217 119 6); /* amber-600 - dark, rich */
+  color: rgb(255 255 255); /* white text for maximum contrast */
   padding: 0.125rem 0.25rem; /* px-1 py-0.5 */
   border-radius: 0.25rem; /* rounded */
   font-weight: 600; /* font-semibold */
-  border: 1px solid rgba(250, 204, 21, 0.3); /* border-yellow-400/30 */
+  border: 1px solid rgba(120, 53, 15, 0.6); /* amber-900/60 - very dark border */
 }
 
 @media (prefers-color-scheme: dark) {
   mark.text-fragment-highlight {
-    background-color: rgba(234, 179, 8, 0.3); /* yellow-500/30 */
-    color: rgb(254 240 138); /* yellow-200 */
-    border-color: rgba(234, 179, 8, 0.5); /* yellow-500/50 */
+    background-color: rgba(245, 158, 11, 0.4); /* amber-500/40 */
+    color: rgb(254 243 199); /* amber-100 */
+    border-color: rgba(245, 158, 11, 0.7); /* amber-500/70 */
   }
 }
 

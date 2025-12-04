@@ -63,6 +63,11 @@ const fileParser = parseAsString.withDefault('');
 const expandedParser = parseAsArrayOf(parseAsString, ',').withDefault([]);
 
 /**
+ * Custom parser for text fragment (highlight parameter)
+ */
+const highlightParser = parseAsString.withDefault('');
+
+/**
  * Custom hook for managing application state in URL parameters using nuqs.
  * Provides functions to update file path, expanded directories, and text fragments in the URL.
  */
@@ -72,6 +77,7 @@ export function useUrlState() {
     {
       file: fileParser,
       expanded: expandedParser,
+      highlight: highlightParser,
     },
     {
       history: 'replace',
@@ -91,63 +97,26 @@ export function useUrlState() {
     expanded?: Set<string> | null;
     textFragment?: string | null;
   }) => {
-    // Handle text fragments with client-side navigation
-    if (updates.textFragment !== undefined && updates.textFragment) {
-      console.log('[useUrlState] Text fragment update:', updates.textFragment);
-      
-      // First update query params via nuqs (client-side)
-      const newState: { file?: string | null; expanded?: string[] | null } = {};
-      
-      if (updates.file !== undefined) {
-        newState.file = updates.file || null;
-      }
-      
-      if (updates.expanded !== undefined) {
-        newState.expanded = updates.expanded && updates.expanded.size > 0
-          ? Array.from(updates.expanded)
-          : null;
-      }
-      
-      // Update state if needed
-      if (Object.keys(newState).length > 0) {
-        await setState(newState);
-      }
-      
-      // Text fragment syntax: #:~:text=textStart
-      // Percent-encode the text, including dashes as %2D per spec
-      const encodedText = encodeURIComponent(updates.textFragment).replace(/-/g, '%2D');
-      const fragment = `:~:text=${encodedText}`;
-      
-      console.log('[useUrlState] Setting text fragment:', fragment);
-      
-      // Set hash after state update
-      // Note: Browser's native text fragment highlighting only works on full navigation
-      // So we'll need to handle highlighting manually in the app
-      window.location.hash = fragment;
-    } else {
-      // No text fragment - update query params normally
-      const newState: { file?: string | null; expanded?: string[] | null } = {};
+    const newState: { file?: string | null; expanded?: string[] | null; highlight?: string | null } = {};
 
-      // Update file parameter
-      if (updates.file !== undefined) {
-        newState.file = updates.file || null;
-      }
-
-      // Update expanded directories parameter
-      if (updates.expanded !== undefined) {
-        newState.expanded = updates.expanded && updates.expanded.size > 0
-          ? Array.from(updates.expanded)
-          : null;
-      }
-
-      await setState(newState);
-      
-      // Clear hash if explicitly set to null or when changing files without text fragment
-      if (updates.textFragment === null || (updates.file !== undefined && updates.textFragment === undefined)) {
-        console.log('[useUrlState] Clearing hash');
-        window.location.hash = '';
-      }
+    // Update file parameter
+    if (updates.file !== undefined) {
+      newState.file = updates.file || null;
     }
+
+    // Update expanded directories parameter
+    if (updates.expanded !== undefined) {
+      newState.expanded = updates.expanded && updates.expanded.size > 0
+        ? Array.from(updates.expanded)
+        : null;
+    }
+    
+    // Update highlight/text fragment parameter
+    if (updates.textFragment !== undefined) {
+      newState.highlight = updates.textFragment || null;
+    }
+
+    await setState(newState);
   }, [setState]);
 
   const getFileFromUrl = useCallback(() => {
@@ -162,14 +131,14 @@ export function useUrlState() {
     return new Set(state.expanded);
   }, [state.expanded]);
 
-  const getTextFragmentFromUrl = useCallback(() => {
-    return textFragment;
-  }, [textFragment]);
+  const getHighlightFromUrl = useCallback(() => {
+    return state.highlight || null;
+  }, [state.highlight]);
 
   return {
     updateUrl,
     getFileFromUrl,
     getExpandedFromUrl,
-    getTextFragmentFromUrl,
+    getHighlightFromUrl, // Renamed from getTextFragmentFromUrl
   };
 }

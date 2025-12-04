@@ -286,6 +286,52 @@ const resolvedPath = resolveImagePath('../../img.png', currentFile.path);
 
 **Key principle:** Transform paths only when **converting external references to internal lookups**, never when managing our own data.
 
+## URL State Management (CRITICAL)
+
+### Always Store State in URL Query Parameters
+- **NEVER rely on URL hash fragments** (`#...`) for application state
+- **URL hashes are NOT preserved** across page refreshes or browser sessions
+- **Always use query parameters** (`?key=value`) for persistent state
+
+```typescript
+// ✅ GOOD - State in query parameters (persists across refresh)
+const url = '?file=doc.md&highlight=search-term&expanded=dir1,dir2';
+
+// ❌ BAD - State in hash (lost on refresh)
+const url = '?file=doc.md#:~:text=search-term';
+```
+
+**Why this matters:**
+- **Hashes are ephemeral** - Browser doesn't send them to server, clears them on refresh
+- **Query params are persistent** - Preserved in URL bar, shareable, bookmarkable
+- **Text fragments** (`#:~:text=`) are intentionally not preserved for privacy reasons
+
+**When to use each:**
+- **Query params**: File paths, search terms, filters, highlights, expanded state
+- **Hash**: Only for in-page anchors (heading links) - never for application state
+
+```typescript
+// ✅ GOOD - Persistent highlight with query param
+updateUrl({ file: 'doc.md', highlight: 'search term' });
+// Result: ?file=doc.md&highlight=search%20term
+
+// ❌ BAD - Lost on refresh
+window.location.hash = '#:~:text=search%20term';
+```
+
+### Using nuqs for URL State
+- **Use `useQueryStates`** for all URL state management
+- **Define parsers** for each parameter type
+- **Use `parseAsString`, `parseAsArrayOf`** for typed parsing
+
+```typescript
+const [state, setState] = useQueryStates({
+  file: parseAsString.withDefault(''),
+  highlight: parseAsString.withDefault(''),
+  expanded: parseAsArrayOf(parseAsString, ',').withDefault([]),
+});
+```
+
 ## When in Doubt
 
 1. **Favor explicitness over cleverness**
