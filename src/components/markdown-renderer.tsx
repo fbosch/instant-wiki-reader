@@ -40,9 +40,11 @@ function resolveImagePath(imageSrc: string, currentFilePath: string): string {
 
   // Handle different relative path formats
   if (imageSrc.startsWith("./")) {
-    return currentDir
+    const resolved = currentDir
       ? `${currentDir}/${imageSrc.slice(2)}`
       : imageSrc.slice(2);
+    console.log('[resolveImagePath] Relative path (./):', imageSrc, '→', resolved);
+    return resolved;
   } else if (imageSrc.startsWith("../")) {
     const parts = currentDir.split("/");
     const srcParts = imageSrc.split("/");
@@ -56,13 +58,20 @@ function resolveImagePath(imageSrc: string, currentFilePath: string): string {
     // Remove directories and join with remaining path
     const newParts = parts.slice(0, Math.max(0, parts.length - upCount));
     const remaining = srcParts.slice(upCount);
-    return [...newParts, ...remaining].filter(Boolean).join("/");
+    const resolved = [...newParts, ...remaining].filter(Boolean).join("/");
+    console.log('[resolveImagePath] Parent path (../):', imageSrc, '→', resolved);
+    return resolved;
   } else if (imageSrc.startsWith("/")) {
-    // Absolute path from wiki root
-    return imageSrc.slice(1);
+    // Absolute path from wiki root - strip leading slash
+    // getFileByDisplayPath will add the common prefix if needed
+    const resolved = imageSrc.slice(1);
+    console.log('[resolveImagePath] Absolute path (/):', imageSrc, '→', resolved);
+    return resolved;
   } else {
     // Relative to current directory
-    return currentDir ? `${currentDir}/${imageSrc}` : imageSrc;
+    const resolved = currentDir ? `${currentDir}/${imageSrc}` : imageSrc;
+    console.log('[resolveImagePath] Relative path:', imageSrc, '→', resolved);
+    return resolved;
   }
 }
 
@@ -160,7 +169,11 @@ function MarkdownImage({
           }
         } else {
           // Firefox/Safari or cached mode: Try allFiles first
+          console.log('[MarkdownImage] Looking for file:', resolvedPath, 'in', allFiles.length, 'files');
           file = getFileByDisplayPath(allFiles, resolvedPath);
+          if (!file) {
+            console.warn('[MarkdownImage] File not found by getFileByDisplayPath:', resolvedPath);
+          }
         }
 
         // If still not found, try IndexedDB cache (for Firefox cached mode or when allFiles is empty)

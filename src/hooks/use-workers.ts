@@ -1,4 +1,4 @@
-import { useSyncExternalStore, useCallback } from "react";
+import { useSyncExternalStore } from "react";
 import { wrap, type Remote } from "comlink";
 import type { TreeWorkerApi } from "@/workers/tree-worker";
 import type { SearchWorkerApi } from "@/workers/search-worker";
@@ -94,9 +94,9 @@ function initializeWorkers() {
   );
 
   // Trigger auto-initialization in the worker
-  console.log('[useWorkers] Triggering worker initialization...');
-  workerStore.contentSearchWorker.getStatus().then(status => {
-    console.log('[useWorkers] Worker status after init:', status);
+  console.log("[useWorkers] Triggering worker initialization...");
+  workerStore.contentSearchWorker.getStatus().then((status) => {
+    console.log("[useWorkers] Worker status after init:", status);
   });
 
   // Notify subscribers

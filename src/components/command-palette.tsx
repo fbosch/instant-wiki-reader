@@ -149,6 +149,8 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     // Extract first matched text from result for text fragment navigation
     let textFragment: string | null = null;
     const firstMatch = Object.values(result.match)[0]?.[0];
+    console.log('[CommandPalette] First match snippet:', firstMatch);
+    
     if (firstMatch) {
       // Extract text from <mark>text</mark> pattern
       const markMatch = firstMatch.match(/<mark>(.*?)<\/mark>/);
@@ -160,8 +162,12 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
           .replace(/&quot;/g, '"')
           .replace(/&#039;/g, "'")
           .replace(/&amp;/g, '&');
+        
+        console.log('[CommandPalette] Extracted text fragment:', textFragment);
       }
     }
+    
+    console.log('[CommandPalette] Updating URL:', { file: result.path, textFragment });
     
     // Update URL with file path and text fragment
     // The page's URL restoration logic will handle opening the file
