@@ -345,7 +345,15 @@ function HomeContent() {
                   {ctx.currentFile.path}
                 </p>
               </div>
-              <MarkdownRenderer content={ctx.currentFile.content} />
+              <MarkdownRenderer 
+                content={ctx.currentFile.content} 
+                themeConfig={{
+                  colorTheme,
+                  fontFamily,
+                  fontSize,
+                  lineHeight,
+                }}
+              />
             </div>
             
             {/* Table of Contents - sticky sidebar */}

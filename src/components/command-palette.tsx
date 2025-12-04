@@ -14,6 +14,8 @@ import {
   Dialog, 
   Transition 
 } from '@headlessui/react';
+import { useSnapshot } from 'valtio';
+import { themeStore, colorThemes } from '@/store/theme-store';
 
 /**
  * Parse HTML snippet with <mark> tags and render as React components
@@ -99,6 +101,8 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const [results, setResults] = useState<ContentSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const theme = useSnapshot(themeStore);
+  const colors = colorThemes[theme.colorTheme];
 
   // Handle search with debouncing
   const performSearch = useCallback(async (searchQuery: string) => {
@@ -187,14 +191,21 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
 
         {/* Dialog positioning */}
         <div className="fixed inset-0 flex items-start justify-center pt-[20vh]">
-          <div className="w-full max-w-2xl bg-white dark:bg-slate-800 rounded-lg shadow-2xl overflow-hidden transition-all data-[closed]:scale-95 data-[closed]:opacity-0 data-[enter]:ease-out data-[enter]:duration-200 data-[leave]:ease-in data-[leave]:duration-150">
+          <div 
+            className="w-full max-w-2xl rounded-lg shadow-2xl overflow-hidden transition-all data-[closed]:scale-95 data-[closed]:opacity-0 data-[enter]:ease-out data-[enter]:duration-200 data-[leave]:ease-in data-[leave]:duration-150"
+            style={{ backgroundColor: colors.bg }}
+          >
             <Combobox value={null} onChange={handleSelectResult}>
                 {/* Search Input */}
-                <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
-                  <Search className="w-5 h-5 text-slate-400 flex-shrink-0" />
+                <div 
+                  className="flex items-center gap-3 px-4 py-3 border-b"
+                  style={{ borderColor: colors.border }}
+                >
+                  <Search className="w-5 h-5 flex-shrink-0" style={{ color: colors.secondary }} />
                   <ComboboxInput
                     autoFocus
-                    className="flex-1 bg-transparent text-slate-900 dark:text-slate-50 placeholder-slate-400 outline-none text-base"
+                    className="flex-1 bg-transparent outline-none text-base"
+                    style={{ color: colors.text }}
                     placeholder="Search file contents... (Cmd+Shift+F)"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
@@ -207,13 +218,13 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                 {/* Results */}
                 <ComboboxOptions static className="max-h-[60vh] overflow-y-auto">
                   {query.trim() && !isSearching && results.length === 0 && (
-                    <div className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                    <div className="px-4 py-8 text-center" style={{ color: colors.secondary }}>
                       No results found for "{query}"
                     </div>
                   )}
 
                   {!query.trim() && (
-                    <div className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                    <div className="px-4 py-8 text-center" style={{ color: colors.secondary }}>
                       <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
                       <p>Type to search file contents</p>
                       <p className="text-xs mt-1">Use ↑↓ to navigate, Enter to open</p>
@@ -224,42 +235,60 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                     <ComboboxOption
                       key={result.path}
                       value={result}
-                      className="w-full px-4 py-3 text-left transition-colors cursor-pointer data-[focus]:bg-blue-50 dark:data-[focus]:bg-blue-900/20 hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                      className="w-full px-4 py-3 text-left transition-colors cursor-pointer"
+                      style={{
+                        // @ts-ignore - Headless UI typing issue with style
+                        '--hover-bg': theme.colorTheme === 'dark' || theme.colorTheme === 'black' 
+                          ? 'rgba(255, 255, 255, 0.05)' 
+                          : 'rgba(0, 0, 0, 0.05)',
+                      }}
+                      data-hover-bg
                     >
-                      <div className="flex items-start gap-3">
-                        <FileText className="w-4 h-4 text-slate-400 mt-1 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          {/* File name */}
-                          <div className="font-medium text-slate-900 dark:text-slate-50 truncate">
-                            {formatFileName(result.title, true)}
-                          </div>
-                          
-                          {/* File path */}
-                          <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                            {result.path}
-                          </div>
-
-                          {/* Matched snippets */}
-                          {result.match && Object.keys(result.match).length > 0 && (
-                            <div className="mt-2 space-y-1">
-                              {Object.entries(result.match).slice(0, 2).map(([, matches], i) => (
-                                <div key={i} className="text-sm text-slate-600 dark:text-slate-300">
-                                  {matches.slice(0, 1).map((match, j) => (
-                                    <div key={j} className="truncate">
-                                      <HighlightedSnippet html={match} />
-                                    </div>
-                                  ))}
-                                </div>
-                              ))}
+                      {({ focus }) => (
+                        <div 
+                          className="flex items-start gap-3"
+                          style={{
+                            backgroundColor: focus 
+                              ? (theme.colorTheme === 'dark' || theme.colorTheme === 'black' 
+                                  ? 'rgba(59, 130, 246, 0.1)' 
+                                  : 'rgba(59, 130, 246, 0.08)')
+                              : 'transparent',
+                          }}
+                        >
+                          <FileText className="w-4 h-4 mt-1 flex-shrink-0" style={{ color: colors.secondary }} />
+                          <div className="flex-1 min-w-0">
+                            {/* File name */}
+                            <div className="font-medium truncate" style={{ color: colors.text }}>
+                              {formatFileName(result.title, true)}
                             </div>
-                          )}
-                          
-                          {/* Score indicator */}
-                          <div className="text-xs text-slate-400 mt-1">
-                            Relevance: {Math.round(result.score * 100) / 100}
+                            
+                            {/* File path */}
+                            <div className="text-xs truncate mt-0.5" style={{ color: colors.secondary }}>
+                              {result.path}
+                            </div>
+
+                            {/* Matched snippets */}
+                            {result.match && Object.keys(result.match).length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {Object.entries(result.match).slice(0, 2).map(([, matches], i) => (
+                                  <div key={i} className="text-sm" style={{ color: colors.text }}>
+                                    {matches.slice(0, 1).map((match, j) => (
+                                      <div key={j} className="truncate">
+                                        <HighlightedSnippet html={match} />
+                                      </div>
+                                    ))}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            
+                            {/* Score indicator */}
+                            <div className="text-xs mt-1" style={{ color: colors.secondary }}>
+                              Relevance: {Math.round(result.score * 100) / 100}
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      )}
                     </ComboboxOption>
                   ))}
                 </ComboboxOptions>

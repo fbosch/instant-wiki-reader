@@ -236,14 +236,30 @@ function FileTreeItem({
       <div
         {...mergeProps(focusProps)}
         ref={ref}
-        className={`flex items-center gap-2 px-2 py-1 cursor-pointer rounded transition-colors relative ${
-          isCurrentFile
-            ? 'bg-blue-600 text-white hover:bg-blue-700' 
+        className="flex items-center gap-2 px-2 py-1 cursor-pointer rounded transition-colors relative"
+        style={{ 
+          paddingLeft: 8 + level * 16,
+          backgroundColor: isCurrentFile 
+            ? '#2563eb' 
             : isSelected 
-            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/40' 
-            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-        }`}
-        style={{ paddingLeft: 8 + level * 16 }}
+            ? (colorTheme === 'dark' || colorTheme === 'black' ? 'rgba(37, 99, 235, 0.2)' : 'rgba(37, 99, 235, 0.1)')
+            : 'transparent',
+          color: isCurrentFile 
+            ? '#ffffff' 
+            : theme.text,
+        }}
+        onMouseEnter={(e) => {
+          if (!isCurrentFile && !isSelected) {
+            e.currentTarget.style.backgroundColor = colorTheme === 'dark' || colorTheme === 'black' 
+              ? 'rgba(255, 255, 255, 0.05)' 
+              : 'rgba(0, 0, 0, 0.05)';
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!isCurrentFile && !isSelected) {
+            e.currentTarget.style.backgroundColor = 'transparent';
+          }
+        }}
         onClick={handleClick}
       >
         {isCurrentFile && (
@@ -251,18 +267,20 @@ function FileTreeItem({
         )}
         {hasChildren && (
           <ChevronRight 
-            className={`w-4 h-4 flex-shrink-0 transition-transform ${
-              isExpanded ? 'rotate-90' : ''
-            } ${isCurrentFile ? 'text-white' : 'text-slate-500'}`}
+            className="w-4 h-4 flex-shrink-0 transition-transform"
+            style={{ 
+              transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+              color: isCurrentFile ? '#ffffff' : theme.secondary 
+            }}
           />
         )}
         {!hasChildren && <div className="w-4 flex-shrink-0" />}
         {item.type === 'file' ? (
-          <File className={`w-4 h-4 flex-shrink-0 ${isCurrentFile ? 'text-white' : 'text-slate-500'}`} />
+          <File className="w-4 h-4 flex-shrink-0" style={{ color: isCurrentFile ? '#ffffff' : theme.secondary }} />
         ) : isExpanded ? (
-          <FolderOpen className={`w-4 h-4 flex-shrink-0 ${isCurrentFile ? 'text-white' : 'text-blue-500'}`} />
+          <FolderOpen className="w-4 h-4 flex-shrink-0" style={{ color: isCurrentFile ? '#ffffff' : '#3b82f6' }} />
         ) : (
-          <Folder className={`w-4 h-4 flex-shrink-0 ${isCurrentFile ? 'text-white' : 'text-blue-500'}`} />
+          <Folder className="w-4 h-4 flex-shrink-0" style={{ color: isCurrentFile ? '#ffffff' : '#3b82f6' }} />
         )}
         <span className="text-sm truncate font-medium">
           <HighlightedText 

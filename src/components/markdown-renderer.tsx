@@ -20,6 +20,7 @@ import { useFileSystem } from "@/contexts/FileSystemContext";
 import { getFileByDisplayPath } from "@/lib/path-manager";
 import mermaid from "mermaid";
 import type { FontFamily, ColorTheme } from "@/store/theme-store";
+import { colorThemes } from "@/store/theme-store";
 
 interface MarkdownRendererProps {
   content: string;
@@ -592,12 +593,19 @@ function createHeadingComponent(
  *
  * @param content - Markdown content to render
  * @param className - Optional additional CSS classes
+ * @param themeConfig - Theme configuration (font, colors, etc.)
  */
 export const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
   className,
+  themeConfig,
 }: MarkdownRendererProps) {
   const { azureDevOpsContext } = useFileSystem();
+  
+  // Extract theme colors
+  const colors = themeConfig 
+    ? colorThemes[themeConfig.colorTheme]
+    : colorThemes.dark;
 
   // Guard against invalid content (but empty string is valid)
   if (typeof content !== 'string') {
@@ -664,7 +672,8 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
           // Code blocks - inline code only (rehype-highlight handles block code)
           pre: ({ children, ...props }) => (
             <pre
-              className="!bg-[#0d1117] !p-4 rounded-lg overflow-x-auto my-4"
+              className="!p-4 rounded-lg overflow-x-auto my-4"
+              style={{ backgroundColor: colors.code }}
               {...props}
             >
               {children}
@@ -677,7 +686,11 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
             if (isInline) {
               return (
                 <code
-                  className="bg-gray-100 dark:bg-gray-800 rounded px-1.5 py-0.5 text-sm font-mono"
+                  className="rounded px-1.5 py-0.5 text-sm font-mono"
+                  style={{ 
+                    backgroundColor: colors.code,
+                    color: colors.text,
+                  }}
                   {...props}
                 >
                   {children}
@@ -707,7 +720,11 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
           // Blockquotes
           blockquote: ({ children, ...props }) => (
             <blockquote
-              className="border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic my-4"
+              className="border-l-4 pl-4 italic my-4"
+              style={{ 
+                borderColor: colors.border,
+                color: colors.secondary,
+              }}
               {...props}
             >
               {children}
@@ -728,7 +745,8 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
           table: ({ children, ...props }) => (
             <div className="overflow-x-auto my-4">
               <table
-                className="min-w-full border border-gray-300 dark:border-gray-600"
+                className="min-w-full border"
+                style={{ borderColor: colors.border }}
                 {...props}
               >
                 {children}
@@ -737,7 +755,12 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
           ),
           th: ({ children, ...props }) => (
             <th
-              className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-4 py-2 text-left font-semibold"
+              className="border px-4 py-2 text-left font-semibold"
+              style={{ 
+                borderColor: colors.border,
+                backgroundColor: colors.code,
+                color: colors.text,
+              }}
               {...props}
             >
               {children}
@@ -745,7 +768,11 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
           ),
           td: ({ children, ...props }) => (
             <td
-              className="border border-gray-300 dark:border-gray-600 px-4 py-2"
+              className="border px-4 py-2"
+              style={{ 
+                borderColor: colors.border,
+                color: colors.text,
+              }}
               {...props}
             >
               {children}
