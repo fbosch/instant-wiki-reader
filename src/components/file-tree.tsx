@@ -158,6 +158,7 @@ function FileTreeItem({
   const ref = React.useRef<HTMLDivElement>(null);
   const { focusProps } = useFocusRing();
   const hasScrolledToView = React.useRef(false);
+  const userClickedRef = React.useRef(false);
 
   // Get expanded dirs for current wiki
   const expandedDirs = currentWiki && wikiStates.has(currentWiki) 
@@ -184,6 +185,9 @@ function FileTreeItem({
   const handleClick = () => {
     console.log('[FileTreeItem] Clicked:', item.name, 'Type:', item.type, 'Path:', item.path, 'Node key:', node.key);
     
+    // Mark that user manually clicked - prevents auto-scroll
+    userClickedRef.current = true;
+    
     if (item.type === 'file') {
       openFile(item.path).catch((error) => {
         console.error('Failed to open file:', item.path, error);
@@ -201,9 +205,9 @@ function FileTreeItem({
     }
   };
 
-  // Scroll the current file into view when it becomes active
+  // Scroll the current file into view when it becomes active (but not on user clicks)
   React.useEffect(() => {
-    if (isCurrentFile && ref.current && !hasScrolledToView.current) {
+    if (isCurrentFile && ref.current && !hasScrolledToView.current && !userClickedRef.current) {
       // Small delay to ensure the DOM is fully rendered and directories are expanded
       const timeoutId = setTimeout(() => {
         ref.current?.scrollIntoView({ 
@@ -217,9 +221,10 @@ function FileTreeItem({
       return () => clearTimeout(timeoutId);
     }
     
-    // Reset the flag when the file changes
+    // Reset the flags when the file changes
     if (!isCurrentFile) {
       hasScrolledToView.current = false;
+      userClickedRef.current = false;
     }
   }, [isCurrentFile]);
 

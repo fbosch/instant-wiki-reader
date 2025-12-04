@@ -196,6 +196,8 @@ function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImage
       src={blobUrl} 
       alt={alt} 
       className="max-w-full h-auto rounded-lg shadow-sm my-4"
+      loading="lazy"
+      decoding="async"
       {...props}
     />
   );
