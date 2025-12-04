@@ -60,21 +60,30 @@ export interface FileSystemState {
   azureDevOpsContext: AzureDevOpsContext | null; // Azure DevOps context for work item links
 }
 
-export interface FileSystemActions {
-  selectDirectory: () => Promise<void>;
-  loadNodeChildren: (node: DirectoryNode) => Promise<void>;
-  openFile: (path: string) => Promise<void>;
-  search: (query: string, mode?: 'filename' | 'fulltext') => SearchIndexEntry[];
-  refresh: () => Promise<void>;
-  clearDirectory: () => void;
-  setExpandedDirs: (dirs: Set<string>) => void;
-  setUrlUpdateCallback: (callback: (file: string | null, expanded: Set<string>) => void) => void;
-}
-
 export type SearchMode = 'filename' | 'fulltext';
 
 export interface SearchResult {
   entry: SearchIndexEntry;
   score: number;
   matches: string[];
+}
+
+export interface ContentSearchResult {
+  path: string;
+  title: string;
+  score: number;
+  match: { [field: string]: string[] };
+  terms: string[];
+}
+
+export interface FileSystemActions {
+  selectDirectory: () => Promise<void>;
+  loadNodeChildren: (node: DirectoryNode) => Promise<void>;
+  openFile: (path: string) => Promise<void>;
+  search: (query: string, mode?: SearchMode) => SearchIndexEntry[];
+  searchContent: (query: string) => Promise<ContentSearchResult[]>;
+  refresh: () => Promise<void>;
+  clearDirectory: () => void;
+  setExpandedDirs: (dirs: Set<string>) => void;
+  setUrlUpdateCallback: (callback: (file: string | null, expanded: Set<string>) => void) => void;
 }

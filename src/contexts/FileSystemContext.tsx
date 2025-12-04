@@ -147,7 +147,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   >(null);
   
   // Initialize workers
-  const { treeWorker, searchWorker } = useWorkers();
+  const { treeWorker, contentSearchWorker } = useWorkers();
 
   // Helper to extract wiki name and Azure DevOps context from directory handle
   const getWikiName = useCallback(async (handle: FileSystemDirectoryHandle | null): Promise<string | null> => {
@@ -223,6 +223,15 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           const tree = await buildTreeWithWorker(cached.files);
           dispatch({ type: 'SET_DIRECTORY_TREE', payload: tree });
           dispatch({ type: 'SET_LAST_REFRESH', payload: Date.now() });
+          
+          // Build search index in background
+          if (contentSearchWorker) {
+            contentSearchWorker.buildIndex().then((result) => {
+              console.log('[FileSystemContext] Search index built from cache:', result);
+            }).catch((error) => {
+              console.error('[FileSystemContext] Error building search index:', error);
+            });
+          }
         }
         
         dispatch({ type: 'SET_IS_INITIALIZING', payload: false });
@@ -326,6 +335,14 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         // Cache files for next page load
         if (wikiNameValue) {
           await cacheFiles(files, wikiNameValue);
+          // Build search index in background
+          if (contentSearchWorker) {
+            contentSearchWorker.buildIndex().then((result) => {
+              console.log('[FileSystemContext] Search index built:', result);
+            }).catch((error) => {
+              console.error('[FileSystemContext] Error building search index:', error);
+            });
+          }
         }
       }
 
@@ -364,8 +381,18 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           return;
         }
 
+        // If the directory tree has a common root prefix, we need to add it back
+        // when looking up files (since allFiles have the original paths with prefix)
+        let lookupPath = path;
+        if (state.directoryTree && '_commonRootPrefix' in state.directoryTree) {
+          const prefix = (state.directoryTree as DirectoryNode & { _commonRootPrefix?: string })._commonRootPrefix;
+          if (prefix) {
+            lookupPath = `${prefix}/${path}`;
+          }
+        }
+
         // Find file in allFiles
-        const file = getFileByPath(allFiles, path);
+        const file = getFileByPath(allFiles, lookupPath);
         if (!file) {
           throw new Error(ERROR_MESSAGES.FILE_NOT_FOUND(path));
         }
@@ -388,7 +415,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         throw error;
       }
     },
-    [allFiles, state.fileCache, state.expandedDirs, urlUpdateCallback]
+    [allFiles, state.fileCache, state.expandedDirs, state.directoryTree, urlUpdateCallback]
   );
 
   // Search (currently simple sync search, can be enhanced with searchWorker for full-text)
@@ -397,7 +424,6 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
       if (!query.trim()) return [];
 
       // Simple filename search for now
-      // TODO: Use searchWorker.searchIndex() for full-text search with better performance
       const lowerQuery = query.toLowerCase();
       const mdFiles = filterMarkdownFiles(allFiles);
 
@@ -416,6 +442,29 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
       return results;
     },
     [allFiles]
+  );
+
+  // Full-text content search using worker
+  const searchContent = useCallback(
+    async (query: string): Promise<import('@/types').ContentSearchResult[]> => {
+      if (!contentSearchWorker) {
+        console.warn('[FileSystemContext] Content search worker not available');
+        return [];
+      }
+
+      if (!query || query.trim().length === 0) {
+        return [];
+      }
+
+      try {
+        const results = await contentSearchWorker.search(query.trim());
+        return results;
+      } catch (error) {
+        console.error('[FileSystemContext] Content search error:', error);
+        return [];
+      }
+    },
+    [contentSearchWorker]
   );
 
   // Refresh directory
@@ -468,6 +517,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     loadNodeChildren,
     openFile,
     search,
+    searchContent,
     refresh,
     clearDirectory,
     setExpandedDirs,

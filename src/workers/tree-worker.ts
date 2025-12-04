@@ -33,13 +33,45 @@ function buildDirectoryTree(files: SerializableFile[]): DirectoryNode {
     isExpanded: true,
   };
 
+  if (files.length === 0) {
+    return root;
+  }
+
   // Sort files by path for efficient tree building
   const sortedFiles = [...files].sort((a, b) => 
     a.path.localeCompare(b.path)
   );
 
+  // Detect if all paths share a common root directory (from browser-fs-access)
+  // If they do, we'll skip it to avoid showing the selected directory itself
+  let commonRootToSkip: string | null = null;
+  const firstPath = sortedFiles[0].path;
+  const firstParts = firstPath.split('/');
+  
+  if (firstParts.length > 1) {
+    // Check if all files share the same first path segment
+    const potentialRoot = firstParts[0];
+    const allShareRoot = sortedFiles.every((file) => {
+      return file.path.startsWith(potentialRoot + '/') || file.path === potentialRoot;
+    });
+    
+    if (allShareRoot) {
+      commonRootToSkip = potentialRoot;
+    }
+  }
+
   for (const file of sortedFiles) {
-    const parts = file.path.split('/');
+    let relativePath = file.path;
+    
+    // Strip common root if detected
+    if (commonRootToSkip && relativePath.startsWith(commonRootToSkip + '/')) {
+      relativePath = relativePath.slice(commonRootToSkip.length + 1);
+    } else if (commonRootToSkip && relativePath === commonRootToSkip) {
+      // Skip the root directory itself if it appears as a file
+      continue;
+    }
+
+    const parts = relativePath.split('/');
     
     let currentNode = root;
     let currentPath = '';
@@ -75,31 +107,48 @@ function buildDirectoryTree(files: SerializableFile[]): DirectoryNode {
     }
   }
 
-  // Second pass: detect index files for directories
-  // A directory has an index file if there's a sibling file with the same name + .md
-  function detectIndexFiles(node: DirectoryNode): void {
+  // Second pass: detect index files and clean up tree
+  // 1. Merge files with same-name directories (e.g., Arkitektur.md + Arkitektur/)
+  // 2. Hide .attachments directories from view
+  function processTree(node: DirectoryNode): void {
     if (!node.children) return;
 
+    const filesToRemove = new Set<DirectoryNode>();
+
+    // Find files that should be merged with directories
     for (const child of node.children) {
-      if (child.type === 'dir') {
-        // Check if there's a sibling file with same name + .md
-        const indexFileName = `${child.name}.md`;
-        const parentChildren = node.children;
-        const indexFile = parentChildren.find(
-          (sibling) => sibling.type === 'file' && sibling.name === indexFileName
+      if (child.type === 'file' && child.name.endsWith('.md')) {
+        // Get the name without .md extension
+        const baseNameWithoutExt = child.name.slice(0, -3);
+        
+        // Check if there's a directory with the same base name
+        const matchingDir = node.children.find(
+          (sibling) => sibling.type === 'dir' && sibling.name === baseNameWithoutExt
         );
         
-        if (indexFile) {
-          child.indexFile = indexFile.path;
+        if (matchingDir) {
+          // Merge: make this file the index of the directory
+          matchingDir.indexFile = child.path;
+          // Mark file for removal from tree (it shouldn't show separately)
+          filesToRemove.add(child);
         }
-        
-        // Recursively check children
-        detectIndexFiles(child);
+      }
+    }
+
+    // Remove merged files and .attachments directories from tree
+    node.children = node.children.filter(
+      (child) => !filesToRemove.has(child) && child.name !== '.attachments'
+    );
+
+    // Recursively process children
+    for (const child of node.children) {
+      if (child.type === 'dir') {
+        processTree(child);
       }
     }
   }
 
-  detectIndexFiles(root);
+  processTree(root);
 
   return root;
 }

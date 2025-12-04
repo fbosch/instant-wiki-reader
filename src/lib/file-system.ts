@@ -1,10 +1,13 @@
 import { directoryOpen } from 'browser-fs-access';
 import { get, set, del } from 'idb-keyval';
+import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { DirectoryNode, FileMeta } from '@/types';
 
 const DIRECTORY_HANDLE_KEY = 'wiki-directory-handle';
 const CACHED_FILES_KEY = 'wiki-cached-files';
 const CACHED_WIKI_NAME_KEY = 'wiki-cached-name';
+const FILE_CONTENTS_DB_NAME = 'wiki-file-contents';
+const FILE_CONTENTS_DB_VERSION = 1;
 
 /**
  * Serializable file data for caching
@@ -15,6 +18,33 @@ interface CachedFile {
   size: number;
   lastModified: number;
   content: ArrayBuffer;
+}
+
+/**
+ * IndexedDB schema for file contents (accessible from workers)
+ */
+interface FileContentsDB extends DBSchema {
+  'contents': {
+    key: string; // file path
+    value: {
+      path: string;
+      content: string;
+      lastModified: number;
+    };
+  };
+}
+
+/**
+ * Get or create the file contents database (accessible from workers)
+ */
+export async function getFileContentsDB(): Promise<IDBPDatabase<FileContentsDB>> {
+  return openDB<FileContentsDB>(FILE_CONTENTS_DB_NAME, FILE_CONTENTS_DB_VERSION, {
+    upgrade(db) {
+      if (!db.objectStoreNames.contains('contents')) {
+        db.createObjectStore('contents', { keyPath: 'path' });
+      }
+    },
+  });
 }
 
 /**
@@ -145,6 +175,7 @@ export async function clearDirectoryHandle(): Promise<void> {
  */
 export async function cacheFiles(files: File[], wikiName: string): Promise<void> {
   try {
+    // Cache file metadata using idb-keyval
     const cachedFiles: CachedFile[] = await Promise.all(
       files.map(async (file) => {
         const content = await file.arrayBuffer();
@@ -160,6 +191,29 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
     
     await set(CACHED_FILES_KEY, cachedFiles);
     await set(CACHED_WIKI_NAME_KEY, wikiName);
+    
+    // Also cache text content in separate DB for search worker access
+    const db = await getFileContentsDB();
+    const tx = db.transaction('contents', 'readwrite');
+    
+    await Promise.all(
+      files.map(async (file) => {
+        // Only cache text files (markdown)
+        if (!file.name.endsWith('.md') && !file.name.endsWith('.markdown')) {
+          return;
+        }
+        
+        const content = await file.text();
+        await tx.store.put({
+          path: file.webkitRelativePath || file.name,
+          content,
+          lastModified: file.lastModified,
+        });
+      })
+    );
+    
+    await tx.done;
+    
     console.log(`[cacheFiles] Cached ${cachedFiles.length} files`);
   } catch (error) {
     console.error('Failed to cache files:', error);
@@ -181,7 +235,7 @@ export async function loadCachedFiles(): Promise<{ files: File[]; wikiName: stri
       return null;
     }
     
-    const files = cachedFiles.map((cached) => {
+    const files = cachedFiles.map((cached: CachedFile) => {
       const file = new File([cached.content], cached.name, {
         lastModified: cached.lastModified,
       });
@@ -212,6 +266,10 @@ export async function clearCachedFiles(): Promise<void> {
   try {
     await del(CACHED_FILES_KEY);
     await del(CACHED_WIKI_NAME_KEY);
+    
+    // Also clear the file contents DB
+    const db = await getFileContentsDB();
+    await db.clear('contents');
   } catch (error) {
     console.error('Failed to clear cached files:', error);
   }
@@ -222,10 +280,10 @@ export async function clearCachedFiles(): Promise<void> {
  * Uses sorting for O(n log n) performance instead of nested lookups (O(n²)).
  * 
  * @param files - Array of File objects with webkitRelativePath property
- * @returns Root directory node with nested children
+ * @returns Root directory node with nested children and common root prefix info
  */
-export function buildDirectoryTree(files: File[]): DirectoryNode {
-  const root: DirectoryNode = {
+export function buildDirectoryTree(files: File[]): DirectoryNode & { _commonRootPrefix?: string } {
+  const root: DirectoryNode & { _commonRootPrefix?: string } = {
     name: 'root',
     path: '',
     type: 'dir',
@@ -260,6 +318,8 @@ export function buildDirectoryTree(files: File[]): DirectoryNode {
     
     if (allShareRoot) {
       commonRootToSkip = potentialRoot;
+      // Store the common root prefix in the tree for later use
+      root._commonRootPrefix = potentialRoot;
     }
   }
 
