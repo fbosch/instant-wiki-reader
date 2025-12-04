@@ -38,6 +38,7 @@ import {
   setPermissionState,
   setIsScanning,
   setIsInitializing,
+  setIsCaching,
   setLastRefresh,
   setAllFiles,
   setWikiName,
@@ -182,10 +183,15 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           setDirectoryTree(tree);
           setLastRefresh(Date.now());
           
-          // Cache files for web worker access (even on Chrome)
+          // Cache files for web worker access in background (even on Chrome)
           if (wikiNameValue) {
-            cacheFiles(files, wikiNameValue).catch((error) => {
-              console.error('[FileSystemContext] Failed to cache files:', error);
+            setIsCaching(true);
+            cacheFiles(files, wikiNameValue).then(() => {
+              console.log('[FileSystemContext] Background caching complete on reload');
+              setIsCaching(false);
+            }).catch((error) => {
+              console.error('[FileSystemContext] Background caching failed:', error);
+              setIsCaching(false);
             });
           }
         } catch (error) {
@@ -242,10 +248,13 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         
         // Cache files for web worker access (async, non-blocking)
         if (wikiNameValue) {
+          setIsCaching(true);
           cacheFiles(files, wikiNameValue).then(() => {
             console.log('[FileSystemContext] Background caching complete');
+            setIsCaching(false);
           }).catch((error) => {
             console.error('[FileSystemContext] Background caching failed:', error);
+            setIsCaching(false);
           });
         }
       } else {
@@ -266,17 +275,24 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           setWikiName(wikiNameValue);
         }
         
-        // Cache files for next page load
+        // Cache files for next page load (async, non-blocking)
         if (wikiNameValue) {
-          await cacheFiles(files, wikiNameValue);
-          // Build search index in background
-          if (contentSearchWorker) {
-            contentSearchWorker.buildIndex().then((result) => {
-              console.log('[FileSystemContext] Search index built:', result);
-            }).catch((error) => {
-              console.error('[FileSystemContext] Error building search index:', error);
-            });
-          }
+          setIsCaching(true);
+          cacheFiles(files, wikiNameValue).then(() => {
+            console.log('[FileSystemContext] Background caching complete');
+            setIsCaching(false);
+            // Build search index after caching completes
+            if (contentSearchWorker) {
+              contentSearchWorker.buildIndex().then((result) => {
+                console.log('[FileSystemContext] Search index built:', result);
+              }).catch((error) => {
+                console.error('[FileSystemContext] Error building search index:', error);
+              });
+            }
+          }).catch((error) => {
+            console.error('[FileSystemContext] Background caching failed:', error);
+            setIsCaching(false);
+          });
         }
       }
 

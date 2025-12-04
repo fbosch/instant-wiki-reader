@@ -26,6 +26,7 @@ export interface FileSystemStore {
   permissionState: 'unknown' | 'granted' | 'denied' | 'prompt';
   isScanning: boolean;
   isInitializing: boolean;
+  isCaching: boolean;
   
   // Metadata
   lastRefresh: number | null;
@@ -46,6 +47,7 @@ const initialState: FileSystemStore = {
   permissionState: 'unknown',
   isScanning: false,
   isInitializing: true,
+  isCaching: false,
   lastRefresh: null,
   searchIndex: [],
   allFiles: ref([]) as File[], // Use ref to prevent proxying File objects
@@ -90,6 +92,10 @@ export function setIsInitializing(isInitializing: boolean) {
   fileSystemStore.isInitializing = isInitializing;
 }
 
+export function setIsCaching(isCaching: boolean) {
+  fileSystemStore.isCaching = isCaching;
+}
+
 export function setLastRefresh(timestamp: number) {
   fileSystemStore.lastRefresh = timestamp;
 }
@@ -123,6 +129,7 @@ export function clearAllFileSystem() {
   fileSystemStore.permissionState = 'unknown';
   fileSystemStore.isScanning = false;
   fileSystemStore.isInitializing = true;
+  fileSystemStore.isCaching = false;
   fileSystemStore.lastRefresh = null;
   fileSystemStore.searchIndex = [];
   fileSystemStore.allFiles = ref([]) as File[]; // Use ref to prevent proxying
