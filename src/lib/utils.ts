@@ -35,32 +35,31 @@ export function getParentDirs(filePath: string): string[] {
 }
 
 /**
- * Formats a file name for display by decoding URL encoding and removing extension.
+ * Formats a file name for display by removing extension and formatting dashes.
+ * Paths are already decoded by getFilePath, so no need to decode again.
  * 
- * @param fileName - Raw file name (e.g., "Projekt%20Dokumentation.md")
+ * Dash formatting rules:
+ * - Three dashes (---) → space-dash-space ( - )
+ * - Single dashes → spaces
+ * 
+ * @param fileName - File name (e.g., "Documentation.md", "File---Name-Example.md")
  * @param removeExtension - Whether to remove the file extension (default: false)
- * @returns Formatted file name (e.g., "Projekt Dokumentation")
+ * @returns Formatted file name (e.g., "Documentation", "File - Name Example")
  */
 export function formatFileName(fileName: string, removeExtension = false): string {
-  // Decode URL encoding (handles %20, %2D, etc.)
-  let decoded = decodeURIComponent(fileName);
+  let formatted = fileName;
   
-  // Remove .md extension if requested
-  if (removeExtension && decoded.endsWith('.md')) {
-    decoded = decoded.slice(0, -3);
+  if (removeExtension && formatted.endsWith('.md')) {
+    formatted = formatted.slice(0, -3);
   }
   
-  return decoded;
-}
-
-/**
- * Formats a file path for display by decoding URL encoding.
- * 
- * @param path - Raw file path
- * @returns Formatted file path with decoded components
- */
-export function formatFilePath(path: string): string {
-  return path.split('/').map(part => decodeURIComponent(part)).join('/');
+  // Replace three dashes with space-dash-space
+  formatted = formatted.replace(/---/g, ' - ');
+  
+  // Replace single dashes with spaces
+  formatted = formatted.replace(/-/g, ' ');
+  
+  return formatted;
 }
 
 /**

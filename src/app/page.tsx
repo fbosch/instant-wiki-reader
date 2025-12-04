@@ -10,7 +10,7 @@ import { FileNameSearch } from '@/components/file-name-search';
 import { DevTools } from '@/components/dev-tools';
 import { FolderOpen, FileText } from 'lucide-react';
 import { useUrlState } from '@/hooks/use-url-state';
-import { getParentDirs, formatFileName, formatFilePath } from '@/lib/utils';
+import { getParentDirs, formatFileName } from '@/lib/utils';
 import { useEffect, Suspense, useState, useCallback } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import type { DirectoryNode } from '@/types';
@@ -245,7 +245,7 @@ function HomeContent() {
                   {formatFileName(ctx.currentFile.path.split('/').pop() || '', true)}
                 </h1>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {formatFilePath(ctx.currentFile.path)}
+                  {ctx.currentFile.path}
                 </p>
               </div>
               <MarkdownRenderer content={ctx.currentFile.content} />

@@ -122,7 +122,6 @@ export async function openDirectory(): Promise<{
   directoryHandle?: FileSystemDirectoryHandle;
 }> {
   try {
-    console.log('[openDirectory] Calling directoryOpen...');
     const files = await directoryOpen({
       recursive: true,
       skipDirectory: (entry) => {
@@ -139,12 +138,6 @@ export async function openDirectory(): Promise<{
         );
       },
     });
-
-    console.log('[openDirectory] Got files, count:', files.length);
-    if (files.length > 0) {
-      console.log('[openDirectory] First file type:', typeof files[0], 'instanceof File:', files[0] instanceof File);
-      console.log('[openDirectory] First file path:', getFilePath(files[0]));
-    }
 
     // Note: browser-fs-access doesn't expose handles directly in current API
     // We use native showDirectoryPicker separately for handle persistence
@@ -482,12 +475,12 @@ export async function clearCachedFiles(): Promise<void> {
  * Stores FULL paths in nodes - prefix is only stripped for display.
  * 
  * @param metadata - Array of file metadata objects with path property
- * @returns Root directory node with nested children and common root prefix info
+ * @returns Root directory node with nested children
  */
 export function buildDirectoryTreeFromMetadata(
   metadata: Array<{ path: string; name: string }>
-): DirectoryNode & { _commonRootPrefix?: string } {
-  const root: DirectoryNode & { _commonRootPrefix?: string } = {
+): DirectoryNode {
+  const root: DirectoryNode = {
     name: 'root',
     path: '',
     type: 'dir',
@@ -533,8 +526,6 @@ export function buildDirectoryTreeFromMetadata(
     
     if (allShareRoot) {
       commonRootPrefix = potentialRoot;
-      // Store the common root prefix in the tree for display purposes only
-      root._commonRootPrefix = potentialRoot;
     }
   }
 

@@ -4,27 +4,15 @@ import { parseAsString, parseAsArrayOf, useQueryStates } from 'nuqs';
 import { useCallback } from 'react';
 
 /**
- * Helper function to decode file paths that may be double-encoded
+ * Helper function to decode URL-encoded file paths
  */
 function decodeFilePath(value: string): string {
-  // Handle double (or more) URL encoding by decoding until we get a stable result
-  let decoded = value;
-  let prevDecoded = '';
-  let attempts = 0;
-  
-  // Keep decoding until the string doesn't change anymore (max 3 iterations)
-  while (decoded !== prevDecoded && attempts < 3) {
-    prevDecoded = decoded;
-    try {
-      decoded = decodeURIComponent(decoded);
-    } catch (e) {
-      // If decoding fails, stop and return what we have
-      break;
-    }
-    attempts++;
+  try {
+    return decodeURIComponent(value);
+  } catch (e) {
+    // If decoding fails, return the original value
+    return value;
   }
-  
-  return decoded;
 }
 
 /**

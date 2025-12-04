@@ -9,7 +9,6 @@ export interface DirectoryNode {
   children?: DirectoryNode[];
   isExpanded?: boolean;
   indexFile?: string; // Path to index file if directory has one (e.g., "docs.md" for "docs/" folder)
-  _commonRootPrefix?: string; // Internal: Common root prefix for display path conversion
 }
 
 export interface FileMeta {

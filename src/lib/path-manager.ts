@@ -40,10 +40,11 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
     return fileOrMeta.path;
   }
   
-  // If it's a File object, try webkitRelativePath (cross-browser support)
+  // If it's a File object
   const file = fileOrMeta as File;
   
   // Try the decoded path WeakMap first (from file-system-store)
+  // This is the primary source of truth for file paths
   try {
     const { getDecodedPathForFile } = require('@/store/file-system-store');
     const decodedPath = getDecodedPathForFile(file);
@@ -51,29 +52,12 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
       return decodedPath;
     }
   } catch (e) {
-    // Ignore - store module might not be loaded yet
+    // Store module not loaded yet, continue to fallback
   }
   
-  // Try WeakMap fallback (Firefox-safe fallback for cached files)
-  try {
-    const { getFilePathMapping } = require('@/lib/file-system');
-    const mappedPath = getFilePathMapping(file);
-    if (typeof mappedPath === 'string' && mappedPath.length > 0) {
-      // Decode the path to ensure consistency
-      try {
-        return decodeURIComponent(mappedPath);
-      } catch (e) {
-        return mappedPath;
-      }
-    }
-  } catch (e) {
-    // Ignore - file-system module might not be loaded yet
-  }
-  
-  // Try webkitRelativePath
+  // Fallback to webkitRelativePath with decoding
   const webkitPath = safePropertyAccess(file, 'webkitRelativePath', '');
   if (typeof webkitPath === 'string' && webkitPath.length > 0) {
-    // Decode the path to ensure consistency
     try {
       return decodeURIComponent(webkitPath);
     } catch (e) {
@@ -81,10 +65,9 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
     }
   }
   
-  // Fallback to name
+  // Final fallback to name with decoding
   const name = safePropertyAccess(file, 'name', '');
   if (typeof name === 'string' && name.length > 0) {
-    // Decode the name to ensure consistency
     try {
       return decodeURIComponent(name);
     } catch (e) {
@@ -92,27 +75,7 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
     }
   }
   
-  // Last resort - try direct property access (for when safeGetProperty fails)
-  try {
-    if ('webkitRelativePath' in file && file.webkitRelativePath) {
-      try {
-        return decodeURIComponent(file.webkitRelativePath);
-      } catch (e) {
-        return file.webkitRelativePath;
-      }
-    }
-    if ('name' in file && file.name) {
-      try {
-        return decodeURIComponent(file.name);
-      } catch (e) {
-        return file.name;
-      }
-    }
-  } catch (e) {
-    // Ignore
-  }
-  
-  // Absolute last resort
+  // If all else fails
   console.error('[getFilePath] Could not get path from file:', file);
   return 'unknown-file';
 }
