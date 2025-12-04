@@ -278,7 +278,17 @@ function HomeContent() {
 
   // Main application view - directory loaded
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
+    <div 
+      className="flex h-screen bg-slate-50 dark:bg-slate-900"
+      style={{
+        // CSS variables for theme colors - accessible to all child components
+        '--theme-bg': theme.bg,
+        '--theme-text': theme.text,
+        '--theme-secondary': theme.secondary,
+        '--theme-border': theme.border,
+        '--theme-code': theme.code,
+      } as React.CSSProperties}
+    >
       {/* Dev Tools (only in development) */}
       <DevTools />
       

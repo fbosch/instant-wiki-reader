@@ -38,7 +38,8 @@ function TocItem({ entry, level }: TocItemProps) {
       <a
         href={`#${entry.id}`}
         onClick={handleClick}
-        className="text-blue-600 dark:text-blue-400 hover:underline text-sm leading-relaxed"
+        className="hover:underline text-sm leading-relaxed"
+        style={{ color: '#3b82f6' }}
       >
         {entry.text}
       </a>
@@ -89,10 +90,14 @@ export const TableOfContents = memo(function TableOfContents({
 
   return (
     <nav
-      className={`p-4 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 ${className}`}
+      className={`p-4 border rounded-lg ${className}`}
+      style={{
+        borderColor: 'var(--theme-border)',
+        backgroundColor: 'var(--theme-code)',
+      }}
       aria-label="Table of contents"
     >
-      <h2 className="text-lg font-semibold mb-3 text-gray-900 dark:text-gray-100">
+      <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--theme-text)' }}>
         Contents
       </h2>
       <ul className="space-y-1">

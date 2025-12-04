@@ -236,7 +236,11 @@ function MarkdownImage({
 
   if (error) {
     return (
-      <div className="my-4 p-4 border border-red-300 dark:border-red-700 rounded bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-sm">
+      <div className="my-4 p-4 border rounded text-sm" style={{ 
+        borderColor: '#ef4444', 
+        backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+        color: '#ef4444' 
+      }}>
         Failed to load image: {srcString}
       </div>
     );
@@ -244,7 +248,10 @@ function MarkdownImage({
 
   if (!blobUrl) {
     return (
-      <div className="my-4 h-32 bg-slate-100 dark:bg-slate-800 rounded animate-pulse flex items-center justify-center text-slate-400">
+      <div className="my-4 h-32 rounded animate-pulse flex items-center justify-center" style={{ 
+        backgroundColor: 'rgba(148, 163, 184, 0.1)', 
+        color: '#94a3b8' 
+      }}>
         Loading image...
       </div>
     );
@@ -299,7 +306,11 @@ function MermaidDiagram({ chart }: { chart: string }) {
 
   if (error) {
     return (
-      <div className="my-4 p-4 border border-red-300 dark:border-red-700 rounded bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300">
+      <div className="my-4 p-4 border rounded" style={{ 
+        borderColor: '#ef4444', 
+        backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+        color: '#ef4444' 
+      }}>
         <div className="font-semibold mb-2">Mermaid Error:</div>
         <pre className="text-sm overflow-x-auto">{error}</pre>
       </div>
@@ -308,7 +319,10 @@ function MermaidDiagram({ chart }: { chart: string }) {
 
   if (!svg) {
     return (
-      <div className="my-4 h-32 bg-slate-100 dark:bg-slate-800 rounded animate-pulse flex items-center justify-center text-slate-400">
+      <div className="my-4 h-32 rounded animate-pulse flex items-center justify-center" style={{ 
+        backgroundColor: 'rgba(148, 163, 184, 0.1)', 
+        color: '#94a3b8' 
+      }}>
         Rendering diagram...
       </div>
     );
@@ -329,8 +343,9 @@ function MermaidDiagram({ chart }: { chart: string }) {
 function MarkdownLink({
   href,
   children,
+  themeColors,
   ...props
-}: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+}: React.AnchorHTMLAttributes<HTMLAnchorElement> & { themeColors?: { text: string; secondary: string } }) {
   const { currentFile, openFile, allFiles, wikiName } = useFileSystem();
 
   const handleClick = useCallback(
@@ -431,7 +446,8 @@ function MarkdownLink({
     <a
       href={href}
       onClick={handleClick}
-      className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+      className="hover:underline cursor-pointer"
+      style={{ color: '#3b82f6' }}
       target={isExternal ? "_blank" : undefined}
       rel={isExternal ? "noopener noreferrer" : undefined}
       {...props}
@@ -568,11 +584,13 @@ function generateHeadingId(text: string): string {
  *
  * @param level - Heading level (1-6)
  * @param className - Tailwind CSS classes for styling
+ * @param style - Inline styles (fontSize, color, etc.)
  * @returns Heading component
  */
 function createHeadingComponent(
   level: 1 | 2 | 3 | 4 | 5 | 6,
   className: string,
+  style?: React.CSSProperties,
 ) {
   return function Heading({
     children,
@@ -583,7 +601,7 @@ function createHeadingComponent(
 
     const Component = `h${level}` as const;
 
-    return createElement(Component, { id, className, ...props }, children);
+    return createElement(Component, { id, className, style, ...props }, children);
   };
 }
 
@@ -663,12 +681,13 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
         rehypePlugins={[rehypeRaw, rehypeHighlight]}
         components={{
           // Custom heading rendering with anchor IDs for table of contents
-          h1: createHeadingComponent(1, "text-4xl font-bold mt-8 mb-4"),
-          h2: createHeadingComponent(2, "text-3xl font-semibold mt-6 mb-3"),
-          h3: createHeadingComponent(3, "text-2xl font-semibold mt-4 mb-2"),
-          h4: createHeadingComponent(4, "text-xl font-semibold mt-3 mb-2"),
-          h5: createHeadingComponent(5, "text-lg font-semibold mt-2 mb-1"),
-          h6: createHeadingComponent(6, "text-base font-semibold mt-2 mb-1"),
+          // Using em units so headings scale with base font size
+          h1: createHeadingComponent(1, "font-bold mt-8 mb-4", { fontSize: '2.25em', color: colors.text }),
+          h2: createHeadingComponent(2, "font-semibold mt-6 mb-3", { fontSize: '1.875em', color: colors.text }),
+          h3: createHeadingComponent(3, "font-semibold mt-4 mb-2", { fontSize: '1.5em', color: colors.text }),
+          h4: createHeadingComponent(4, "font-semibold mt-3 mb-2", { fontSize: '1.25em', color: colors.text }),
+          h5: createHeadingComponent(5, "font-semibold mt-2 mb-1", { fontSize: '1.125em', color: colors.text }),
+          h6: createHeadingComponent(6, "font-semibold mt-2 mb-1", { fontSize: '1em', color: colors.text }),
           // Code blocks - inline code only (rehype-highlight handles block code)
           pre: ({ children, ...props }) => (
             <pre
@@ -716,7 +735,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
             );
           },
           // Links - use custom component for internal navigation
-          a: MarkdownLink,
+          a: (props) => <MarkdownLink {...props} themeColors={{ text: colors.text, secondary: colors.secondary }} />,
           // Blockquotes
           blockquote: ({ children, ...props }) => (
             <blockquote
