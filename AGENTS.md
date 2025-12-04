@@ -200,6 +200,41 @@ update
 wip
 ```
 
+## Critical Code Editing Rules
+
+### ALWAYS Complete Your Edits (CRITICAL)
+- **NEVER make partial edits** - Always include the complete code block you're replacing
+- **Read the full context** before editing - Don't assume what comes after
+- **Verify your replacement** includes ALL necessary code, not just the part you're changing
+- **Check for orphaned code** after your edits - Make sure nothing is left dangling
+
+```typescript
+// ❌ BAD - Incomplete edit that breaks code
+// Only edited the first few lines, left the rest incomplete
+if (condition) {
+  doSomething();
+  // ... rest of code is missing!
+
+// ✅ GOOD - Complete edit with full context
+if (condition) {
+  doSomething();
+  doSomethingElse();
+  return result;
+}
+```
+
+**Common mistakes to avoid:**
+- Editing only the start of a function and forgetting the rest
+- Not including the closing braces/brackets
+- Leaving old code after adding new code (dead code)
+- Not reading far enough to see what needs to be preserved
+
+**Best practice:**
+1. Read MORE lines than you think you need
+2. Include the COMPLETE block you're replacing
+3. Double-check your edit includes everything
+4. Verify the build succeeds after your edit
+
 ## When in Doubt
 
 1. **Favor explicitness over cleverness**
@@ -208,6 +243,7 @@ wip
 4. **Ask for clarification** if unclear
 5. **Write code for humans first**
 6. **Test across multiple browsers** for File System APIs
+7. **COMPLETE YOUR EDITS** - Never leave code half-finished
 
 ---
 

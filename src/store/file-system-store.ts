@@ -36,6 +36,27 @@ export interface FileSystemStore {
   azureDevOpsContext: AzureDevOpsContext | null;
 }
 
+// Store file path metadata map OUTSIDE Valtio to avoid proxy issues with Maps
+// Maps file paths for quick existence checks and metadata lookups
+let globalFilePathMetadata = new Map<string, { path: string; name: string }>();
+
+export function getFilePathMetadata(): Map<string, { path: string; name: string }> {
+  return globalFilePathMetadata;
+}
+
+export function hasFilePath(path: string): boolean {
+  return globalFilePathMetadata.has(path);
+}
+
+export function setFilePathMetadataFromCache(metadata: Array<{ path: string; name: string }>) {
+  console.log('[setFilePathMetadataFromCache] Building map from', metadata.length, 'entries');
+  globalFilePathMetadata = new Map();
+  for (const item of metadata) {
+    globalFilePathMetadata.set(item.path, item);
+  }
+  console.log('[setFilePathMetadataFromCache] Done -', globalFilePathMetadata.size, 'entries');
+}
+
 // Initial state
 const initialState: FileSystemStore = {
   rootHandle: null,
@@ -105,9 +126,36 @@ export function setSearchIndex(index: SearchIndexEntry[]) {
 }
 
 export function setAllFiles(files: File[]) {
-  // Use ref() to prevent Valtio from wrapping File objects in Proxies
-  // This is critical because File objects have getters that don't work through Proxies
-  fileSystemStore.allFiles = ref(files) as File[];
+  try {
+    console.log('[setAllFiles] START - Building file path metadata for', files.length, 'files');
+    const startTime = performance.now();
+    
+    // Use ref() to prevent Valtio from wrapping File objects in Proxies
+    // This is critical because File objects have getters that don't work through Proxies
+    fileSystemStore.allFiles = ref(files) as File[];
+    console.log('[setAllFiles] Set allFiles');
+    
+    // Build metadata map for path lookups (not storing full File objects)
+    // Store it in module-level variable (not in Valtio) to avoid proxy issues with Maps
+    globalFilePathMetadata = new Map();
+    console.log('[setAllFiles] Created metadata map');
+    
+    // Import getFilePath
+    const { getFilePath } = require('@/lib/path-manager');
+    console.log('[setAllFiles] Imported getFilePath');
+    
+    for (const file of files) {
+      const path = getFilePath(file);
+      globalFilePathMetadata.set(path, { path, name: file.name });
+    }
+    
+    console.log('[setAllFiles] Built metadata map with', globalFilePathMetadata.size, 'entries (took', (performance.now() - startTime).toFixed(2), 'ms)');
+    console.log('[setAllFiles] First 5 keys:', Array.from(globalFilePathMetadata.keys()).slice(0, 5));
+    console.log('[setAllFiles] DONE - globalFilePathMetadata.size:', globalFilePathMetadata.size);
+  } catch (error) {
+    console.error('[setAllFiles] ERROR:', error);
+    throw error;
+  }
 }
 
 export function setWikiName(name: string | null) {
@@ -126,6 +174,7 @@ export function clearAllFileSystem() {
   fileSystemStore.currentFile = null;
   fileSystemStore.fileCache = new Map();
   fileSystemStore.handleCache = new Map();
+  globalFilePathMetadata = new Map(); // Clear the module-level map
   fileSystemStore.permissionState = 'unknown';
   fileSystemStore.isScanning = false;
   fileSystemStore.isInitializing = true;

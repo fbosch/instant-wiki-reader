@@ -61,7 +61,7 @@ function HomeContent() {
         setExpandedDirsValtio(dirsToExpand);
       }
 
-      // Open the file
+      // Open the file - use path exactly as stored in URL
       if (ctx.currentFile?.path !== filePath) {
         console.log('[HomeContent] Opening file from URL:', filePath);
         setIsLoadingFromUrl(true);
