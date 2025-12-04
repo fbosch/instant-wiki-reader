@@ -380,50 +380,17 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         // Fallback to allFiles for File System Access API mode
         const allFiles = fileSystemStore.allFiles;
         
-        console.log('[openFile] Not in IndexedDB, trying allFiles. Count:', allFiles.length);
-        console.log('[openFile] Looking for path:', path);
-        
         // If allFiles is empty, we're probably in cached/Firefox mode where files aren't stored
         // In this case, the file MUST be in IndexedDB, so if we got here, it's truly not found
         if (allFiles.length === 0) {
-          console.error('[openFile] allFiles is empty (likely cached mode) and file not in IndexedDB');
-          console.error('[openFile] This means the file was not cached properly or the path is wrong');
-          console.error('[openFile] Requested path:', path);
-          
-          // Try to get all cached file paths to help debug
-          const { getFileContentsDB } = await import('@/lib/file-system');
-          const db = await getFileContentsDB();
-          const allKeys = await db.getAllKeys('contents');
-          console.error('[openFile] All cached file paths (first 20):', allKeys.slice(0, 20));
-          
           throw new Error(`File not found in cache or allFiles: ${path}`);
         }
-        
-        // Debug: Log first 10 file paths to understand the structure
-        console.log('[openFile] Sample file paths from allFiles:');
-        allFiles.slice(0, 10).forEach((f, idx) => {
-          const filePath = getFilePath(f);
-          console.log(`  [${idx}] ${filePath}`);
-        });
-        
-        // Check if the specific file we're looking for exists
-        console.log('[openFile] Searching for exact match:', path);
-        const exactMatch = allFiles.find(f => {
-          const fp = getFilePath(f);
-          console.log(`  Comparing: "${fp}" === "${path}"? ${fp === path}`);
-          return fp === path;
-        });
-        console.log('[openFile] Exact match found:', !!exactMatch);
         
         // Use PathManager functional helper to find the file
         const file = getFileByDisplayPath(allFiles, path);
         if (!file) {
-          console.error('[openFile] File not found:', path);
-          console.error('[openFile] This will call getFileByDisplayPath which logs debug info');
           throw new Error(ERROR_MESSAGES.FILE_NOT_FOUND(path));
         }
-
-        console.log('[openFile] Found file in allFiles');
 
         // Read file content
         const content = await readFileAsText(file);

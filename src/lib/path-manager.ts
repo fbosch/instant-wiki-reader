@@ -218,18 +218,11 @@ export function getFileByDisplayPath<T extends FileWithPath>(files: readonly T[]
     // Ignore
   }
   
-  // Not found - log for debugging
-  console.error('[PathManager] File not found for display path:', displayPath);
-  console.error('[PathManager] Tried storage path:', storagePath);
-  console.error('[PathManager] Common root prefix:', prefix);
-  console.error('[PathManager] Total files available:', files.length);
-  console.error('[PathManager] First 10 file paths:', 
-    files.slice(0, 10).map(f => {
-      const path = getFilePath(f as any);
-      return `"${path}" (name: "${f.name}")`;
-    }));
-  console.error('[PathManager] Looking for files with similar names:',
-    files.filter(f => f.name.includes(displayPath.split('/').pop() || '')).slice(0, 5).map(f => getFilePath(f as any)));
+  // Not found - log minimal info for debugging
+  if (process.env.NODE_ENV === 'development') {
+    console.error('[PathManager] File not found:', displayPath);
+    console.error('[PathManager] Prefix:', prefix, '| Files:', files.length);
+  }
   
   return undefined;
 }
