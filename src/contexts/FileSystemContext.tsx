@@ -171,6 +171,17 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           setWikiName(cached.wikiName);
           setLastRefresh(Date.now());
           
+          // Also try to get Azure DevOps context from .git/config
+          // This is needed for work item link conversion
+          console.log('[FileSystemContext] Attempting to load Azure DevOps context from .git/config');
+          const azureContext = await getAzureDevOpsContext(savedHandle);
+          if (azureContext) {
+            console.log('[FileSystemContext] ✓ Loaded Azure DevOps context:', azureContext);
+            setAzureDevOpsContext(azureContext);
+          } else {
+            console.log('[FileSystemContext] No Azure DevOps context found');
+          }
+          
           // Build file path metadata map from cached metadata (lightweight)
           console.log('[FileSystemContext] Building file path metadata map...');
           const { setFilePathMetadataFromCache } = await import('@/store/file-system-store');

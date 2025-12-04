@@ -723,13 +723,32 @@ export async function getAzureDevOpsContext(
   rootHandle: FileSystemDirectoryHandle
 ): Promise<AzureDevOpsContext | null> {
   try {
+    console.log('[getAzureDevOpsContext] Attempting to read .git/config from:', rootHandle.name);
+    
+    // Check for cached context first (localStorage fallback)
+    const cachedContextKey = `azure-devops-context-${rootHandle.name}`;
+    const cachedContext = localStorage.getItem(cachedContextKey);
+    if (cachedContext) {
+      try {
+        const parsed = JSON.parse(cachedContext);
+        console.log('[getAzureDevOpsContext] Using cached context from localStorage:', parsed);
+        return parsed;
+      } catch (e) {
+        console.warn('[getAzureDevOpsContext] Failed to parse cached context:', e);
+      }
+    }
+    
     // Try to get .git directory
     const gitHandle = await rootHandle.getDirectoryHandle('.git');
+    console.log('[getAzureDevOpsContext] Found .git directory');
     
     // Try to get config file
     const configHandle = await gitHandle.getFileHandle('config');
+    console.log('[getAzureDevOpsContext] Found config file');
+    
     const configFile = await configHandle.getFile();
     const configText = await configFile.text();
+    console.log('[getAzureDevOpsContext] Config file contents (first 200 chars):', configText.substring(0, 200));
     
     // Parse git config to find remote URL
     // Look for patterns like:
@@ -737,18 +756,22 @@ export async function getAzureDevOpsContext(
     //   url = https://kommunekredit.visualstudio.com/KK%20Laaneportal/_git/KK-Laaneportal.wiki
     const urlMatch = configText.match(/url\s*=\s*(.+)/);
     if (!urlMatch) {
+      console.log('[getAzureDevOpsContext] No URL found in git config');
       return null;
     }
     
     const remoteUrl = urlMatch[1].trim();
+    console.log('[getAzureDevOpsContext] Found remote URL:', remoteUrl);
     
-    // Parse Azure DevOps URL
-    // Format: https://{org}.visualstudio.com/{project}/_git/{wiki-name}
-    // or: https://dev.azure.com/{org}/{project}/_git/{wiki-name}
+    // Parse Azure DevOps URL - supports both HTTPS and SSH formats
+    // HTTPS Format: https://{org}.visualstudio.com/{project}/_git/{wiki-name}
+    // HTTPS Format: https://dev.azure.com/{org}/{project}/_git/{wiki-name}
+    // SSH Format: {user}@vs-ssh.visualstudio.com:v3/{org}/{project}/{wiki-name}
     const visualStudioMatch = remoteUrl.match(/https?:\/\/([^.]+)\.visualstudio\.com\/([^/]+)\/_git\/([^/?]+)/);
     const devAzureMatch = remoteUrl.match(/https?:\/\/dev\.azure\.com\/([^/]+)\/([^/]+)\/_git\/([^/?]+)/);
+    const sshMatch = remoteUrl.match(/[^@]+@vs-ssh\.visualstudio\.com:v3\/([^/]+)\/([^/]+)\/([^/?]+)/);
     
-    const match = visualStudioMatch || devAzureMatch;
+    const match = visualStudioMatch || devAzureMatch || sshMatch;
     if (match) {
       const organization = match[1];
       const project = decodeURIComponent(match[2]);
@@ -757,21 +780,46 @@ export async function getAzureDevOpsContext(
       // Clean up the wiki name for display
       wikiName = cleanWikiName(wikiName);
       
-      const baseUrl = visualStudioMatch 
-        ? `https://${organization}.visualstudio.com`
-        : `https://dev.azure.com/${organization}`;
+      // Determine base URL based on which pattern matched
+      let baseUrl: string;
+      if (visualStudioMatch) {
+        baseUrl = `https://${organization}.visualstudio.com`;
+      } else if (devAzureMatch) {
+        baseUrl = `https://dev.azure.com/${organization}`;
+      } else if (sshMatch) {
+        // SSH uses visualstudio.com format
+        baseUrl = `https://${organization}.visualstudio.com`;
+      } else {
+        // Fallback
+        baseUrl = `https://${organization}.visualstudio.com`;
+      }
       
-      return {
+      const context = {
         organization,
         project,
         wikiName,
         baseUrl,
       };
+      
+      console.log('[getAzureDevOpsContext] Successfully parsed Azure DevOps context:', context);
+      
+      // Cache the context in localStorage for next time
+      const cachedContextKey = `azure-devops-context-${rootHandle.name}`;
+      try {
+        localStorage.setItem(cachedContextKey, JSON.stringify(context));
+        console.log('[getAzureDevOpsContext] Cached context to localStorage');
+      } catch (e) {
+        console.warn('[getAzureDevOpsContext] Failed to cache context:', e);
+      }
+      
+      return context;
     }
     
+    console.log('[getAzureDevOpsContext] URL does not match Azure DevOps pattern');
     return null;
   } catch (error) {
     // Could not read .git/config - not an error, just means no Azure DevOps context
+    console.log('[getAzureDevOpsContext] Failed to read .git/config:', error);
     return null;
   }
 }

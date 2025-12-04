@@ -381,7 +381,7 @@ function HomeContent() {
             
             {/* Table of Contents - sticky sidebar */}
             <aside className="hidden xl:block w-72 flex-shrink-0">
-              <div className="sticky top-8">
+              <div className="sticky top-8" style={{ maxHeight: 'calc(100vh - 4rem)', overflowY: 'auto' }}>
                 <TableOfContents content={ctx.currentFile.content} />
               </div>
             </aside>

@@ -494,11 +494,26 @@ function preprocessMarkdown(
 
   // Fix headers without space after # symbols
   // Matches: ##Header or ###Header etc. (but not URLs like http://)
+  // EXCLUDES: #12345 (work item references - single # followed by digits)
   // Replaces with: ## Header or ### Header
-  processed = processed.replace(/^(#{1,6})([^\s#])/gm, "$1 $2");
+  processed = processed.replace(/^(#{1,6})([^\s#\d])/gm, "$1 $2");
+  
+  // Also handle the case where there are multiple # followed by non-digit
+  // This catches ##Header but not #12345
+  processed = processed.replace(/^(#)(\d)/gm, (match, hash, digit) => {
+    // If it's a single # followed by 4+ digits at start of line, it's a work item reference
+    // Don't add a space - keep it as-is so it gets converted to a link
+    const restOfLine = processed.substring(processed.indexOf(match) + match.length);
+    if (/^\d{3,}\b/.test(digit + restOfLine)) {
+      return match; // Keep as-is (work item reference)
+    }
+    return `${hash} ${digit}`; // Add space (heading)
+  });
 
   // Convert Azure DevOps work item references to links
+  console.log('[preprocessMarkdown] azureDevOpsBaseUrl:', azureDevOpsBaseUrl);
   if (azureDevOpsBaseUrl) {
+    console.log('[preprocessMarkdown] Converting work items with base URL:', azureDevOpsBaseUrl);
     // Protect code blocks and inline code from replacement
     const codeBlocks: string[] = [];
     const inlineCode: string[] = [];
@@ -526,21 +541,28 @@ function preprocessMarkdown(
     });
 
     // Now convert work item references
-    // Match: # followed by 4+ digits, but not at start of line after ## (headers)
+    // Match: # followed by 4+ digits
+    // Handles both inline (#12345) and start-of-line cases
+    const startOfLineMatches = processed.match(/^#(\d{4,})\b/gm);
+    console.log('[preprocessMarkdown] Start-of-line work items found:', startOfLineMatches);
+    
     processed = processed.replace(
-      /(\s|^)#(\d{4,})\b/gm,
+      /^#(\d{4,})\b/gm,
+      (match, id) => {
+        // Line starts with #12345 - convert to link
+        const link = `[#${id}](${azureDevOpsBaseUrl}/_workitems/edit/${id})`;
+        console.log('[preprocessMarkdown] Converting', match, 'to', link);
+        return link;
+      },
+    );
+    
+    // Also match work items that appear mid-line or after whitespace
+    processed = processed.replace(
+      /(\s)#(\d{4,})\b/g,
       (match, prefix, id) => {
-        // Check if this line starts with # (header)
-        const beforeMatch = processed.substring(0, processed.indexOf(match));
-        const lastNewline = beforeMatch.lastIndexOf("\n");
-        const lineStart = processed.substring(lastNewline + 1);
-
-        // Skip if line starts with # (it's a header)
-        if (lineStart.trim().match(/^#{1,6}\d/)) {
-          return match;
-        }
-
-        return `${prefix}[#${id}](${azureDevOpsBaseUrl}/_workitems/edit/${id})`;
+        const link = `${prefix}[#${id}](${azureDevOpsBaseUrl}/_workitems/edit/${id})`;
+        console.log('[preprocessMarkdown] Converting inline', match, 'to', link);
+        return link;
       },
     );
 

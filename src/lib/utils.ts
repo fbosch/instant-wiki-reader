@@ -91,13 +91,25 @@ export function generateHeadingId(text: string): string {
 /**
  * Extracts headings from markdown content to build a table of contents.
  * Handles malformed headers (without space after #) by preprocessing.
+ * EXCLUDES work item references like #12345 from being treated as headings.
  * 
  * @param content - Markdown content
  * @returns Hierarchical table of contents entries
  */
 export function extractTableOfContents(content: string): TocEntry[] {
   // Preprocess to fix headers without spaces (e.g., ##Header -> ## Header)
-  const fixedContent = content.replace(/^(#{1,6})([^\s#])/gm, '$1 $2');
+  // BUT exclude work item references (# followed by 4+ digits)
+  let fixedContent = content.replace(/^(#{1,6})([^\s#\d])/gm, '$1 $2');
+  
+  // Handle single # followed by digit - only add space if NOT a work item reference
+  fixedContent = fixedContent.replace(/^(#)(\d)/gm, (match, hash, digit, offset) => {
+    const restOfLine = fixedContent.substring(offset + match.length).split('\n')[0];
+    // If it's 4+ digits total, it's a work item reference - skip it
+    if (/^\d{3,}\b/.test(digit + restOfLine)) {
+      return ''; // Remove from TOC - it's not a heading
+    }
+    return `${hash} ${digit}`; // Add space (heading)
+  });
   
   // Extract all headers with regex
   const headerRegex = /^(#{1,6})\s+(.+)$/gm;
