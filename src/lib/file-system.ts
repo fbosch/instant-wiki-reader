@@ -92,8 +92,6 @@ export async function getFileContentsDB(): Promise<IDBPDatabase<FileContentsDB>>
       if (!db.objectStoreNames.contains('files')) {
         db.createObjectStore('files', { keyPath: 'path' });
       }
-      
-      console.log(`[IndexedDB] Upgraded from version ${oldVersion} to ${FILE_CONTENTS_DB_VERSION}`);
     },
   });
 }
@@ -242,14 +240,11 @@ export async function clearDirectoryHandle(): Promise<void> {
  */
 export async function cacheFiles(files: File[], wikiName: string): Promise<void> {
   try {
-    console.log('[cacheFiles] Starting to cache files...');
     await set(CACHED_WIKI_NAME_KEY, wikiName, customStore);
     
     const db = await getFileContentsDB();
-    console.log('[cacheFiles] Database opened');
     
     // Write metadata first (lightweight)
-    console.log('[cacheFiles] Writing metadata for', files.length, 'files');
     const metadataTx = db.transaction('metadata', 'readwrite');
     for (const file of files) {
       const path = getFilePath(file);
@@ -263,17 +258,8 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
       metadataTx.store.put(metadata);
     }
     await metadataTx.done;
-    console.log('[cacheFiles] Metadata write complete');
-    
-    // Log first few file paths for debugging
-    console.log('[cacheFiles] First 3 file paths:', files.slice(0, 3).map(f => ({
-      name: safePropertyAccess(f, 'name', ''),
-      webkitRelativePath: safePropertyAccess(f, 'webkitRelativePath', ''),
-      getFilePath: getFilePath(f),
-    })));
     
     // Write File objects (for reconstruction)
-    console.log('[cacheFiles] Writing File objects...');
     const BATCH_SIZE = 50;
     
     for (let i = 0; i < files.length; i += BATCH_SIZE) {
@@ -289,19 +275,15 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
       }
       
       await filesTx.done;
-      console.log(`[cacheFiles] Files batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(files.length / BATCH_SIZE)} complete`);
     }
     
     // Write contents for markdown files (pre-read for search)
-    console.log('[cacheFiles] Writing markdown contents...');
     let mdFilesCount = 0;
     
     const mdFiles = files.filter(f => {
       const name = safePropertyAccess(f, 'name', '');
       return name.endsWith('.md') || name.endsWith('.markdown');
     });
-    
-    console.log('[cacheFiles] Found', mdFiles.length, 'markdown files to cache');
     
     for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {
       const batch = mdFiles.slice(i, Math.min(i + BATCH_SIZE, mdFiles.length));
@@ -336,13 +318,9 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
         }
         await contentsTx.done;
       }
-      
-      console.log(`[cacheFiles] Content batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(mdFiles.length / BATCH_SIZE)} complete (${mdFilesCount}/${mdFiles.length} files)`);
     }
-    
-    console.log(`[cacheFiles] ✓ Cached ${files.length} file objects, ${files.length} metadata, ${mdFilesCount} markdown contents`);
   } catch (error) {
-    console.error('[cacheFiles] ✗ Failed to cache files:', error);
+    console.error('[cacheFiles] Failed to cache files:', error);
     // Don't throw - caching is optional
   }
 }
@@ -371,7 +349,6 @@ export async function loadCachedFileMetadata(): Promise<{
       return null;
     }
     
-    console.log(`[loadCachedFileMetadata] Loaded metadata for ${allMetadata.length} files`);
     return { files: allMetadata, wikiName };
   } catch (error) {
     console.error('Failed to load cached file metadata:', error);
@@ -392,12 +369,11 @@ export async function loadCachedFiles(): Promise<File[] | null> {
     const allFileRecords = await db.getAll('files');
     
     if (!allFileRecords || allFileRecords.length === 0) {
-      console.log('[loadCachedFiles] No cached files found');
       return null;
     }
     
     // Restore webkitRelativePath on File objects (it may be lost in IndexedDB round-trip)
-    const files = allFileRecords.map((record, index) => {
+    const files = allFileRecords.map((record) => {
       const file = record.file;
       
       // Store the path in WeakMap for reliable retrieval (Firefox-safe)
@@ -405,15 +381,6 @@ export async function loadCachedFiles(): Promise<File[] | null> {
       
       // Check if webkitRelativePath is missing or empty
       const currentPath = safePropertyAccess(file, 'webkitRelativePath', '');
-      
-      // Log first few files for debugging
-      if (index < 3) {
-        console.log(`[loadCachedFiles] File ${index}:`, {
-          storedPath: record.path,
-          currentWebkitPath: currentPath,
-          fileName: file.name,
-        });
-      }
       
       // Always restore from stored path if they differ
       if (currentPath !== record.path) {
@@ -425,18 +392,6 @@ export async function loadCachedFiles(): Promise<File[] | null> {
             enumerable: true,
             configurable: true,
           });
-          
-          // Verify it actually worked
-          const verifyPath = safePropertyAccess(file, 'webkitRelativePath', '');
-          if (index < 3) {
-            console.log(`[loadCachedFiles] ✓ Restored webkitRelativePath from "${currentPath}" to "${record.path}"`);
-            console.log(`[loadCachedFiles]   Verification: getFilePath returns "${getFilePath(file)}"`);
-            console.log(`[loadCachedFiles]   WeakMap fallback: "${getFilePathMapping(file)}"`);
-          }
-          
-          if (verifyPath !== record.path) {
-            console.warn(`[loadCachedFiles] ⚠️ Path restoration failed! Expected "${record.path}", got "${verifyPath}"`);
-          }
         } catch (e) {
           console.warn(`[loadCachedFiles] Failed to restore webkitRelativePath for ${record.path}:`, e);
         }
@@ -445,7 +400,6 @@ export async function loadCachedFiles(): Promise<File[] | null> {
       return file;
     });
     
-    console.log(`[loadCachedFiles] Loaded ${files.length} File objects from cache`);
     return files;
   } catch (error) {
     console.error('[loadCachedFiles] Failed to load cached files:', error);
@@ -529,12 +483,6 @@ export function buildDirectoryTreeFromMetadata(
     }
   }
 
-  console.log('[buildDirectoryTreeFromMetadata] Common root prefix:', commonRootPrefix);
-  console.log('[buildDirectoryTreeFromMetadata] Total files:', sortedFiles.length);
-  if (sortedFiles.length > 0) {
-    console.log('[buildDirectoryTreeFromMetadata] First file path:', sortedFiles[0].path);
-  }
-
   for (const file of sortedFiles) {
     const fullPath = file.path; // Keep full path unchanged
     
@@ -583,16 +531,6 @@ export function buildDirectoryTreeFromMetadata(
           children: isLastPart ? undefined : [],
           isExpanded: false,
         };
-        
-        // Debug logging for file nodes
-        if (isLastPart && nodePath.includes('Grønland')) {
-          console.log('[buildDirectoryTreeFromMetadata] Created file node:', {
-            name: part,
-            path: nodePath,
-            fullPath,
-            pathForTreeBuilding,
-          });
-        }
         
         currentNode.children.push(existingNode);
       }
@@ -798,7 +736,6 @@ export async function getAzureDevOpsContext(
     }
     
     const remoteUrl = urlMatch[1].trim();
-    console.log('[getAzureDevOpsContext] Remote URL:', remoteUrl);
     
     // Parse Azure DevOps URL
     // Format: https://{org}.visualstudio.com/{project}/_git/{wiki-name}
@@ -819,8 +756,6 @@ export async function getAzureDevOpsContext(
         ? `https://${organization}.visualstudio.com`
         : `https://dev.azure.com/${organization}`;
       
-      console.log('[getAzureDevOpsContext] Extracted context:', { organization, project, wikiName, baseUrl });
-      
       return {
         organization,
         project,
@@ -831,7 +766,7 @@ export async function getAzureDevOpsContext(
     
     return null;
   } catch (error) {
-    console.log('[getAzureDevOpsContext] Could not read .git/config:', error);
+    // Could not read .git/config - not an error, just means no Azure DevOps context
     return null;
   }
 }
@@ -858,14 +793,12 @@ export async function getWikiNameFromGit(
  */
 export async function getFileFromCache(path: string): Promise<File | null> {
   try {
-    console.log('[getFileFromCache] Looking up file:', path);
     const db = await getFileContentsDB();
     
     // Try direct lookup first
     let cached = await db.get('files', path);
     
     if (cached && cached.file) {
-      console.log('[getFileFromCache] Found file for:', path);
       return cached.file;
     }
     
@@ -875,7 +808,6 @@ export async function getFileFromCache(path: string): Promise<File | null> {
       if (decodedPath !== path) {
         cached = await db.get('files', decodedPath);
         if (cached && cached.file) {
-          console.log('[getFileFromCache] Found file with decoded path:', decodedPath);
           return cached.file;
         }
       }
@@ -883,7 +815,6 @@ export async function getFileFromCache(path: string): Promise<File | null> {
       // Ignore decoding errors
     }
     
-    console.log('[getFileFromCache] No file found for:', path);
     return null;
   } catch (error) {
     console.error('[getFileFromCache] Error:', error);
@@ -900,7 +831,6 @@ export async function getFileFromCache(path: string): Promise<File | null> {
  */
 export async function getFileContentFromCache(path: string): Promise<string | null> {
   try {
-    console.log('[getFileContentFromCache] Looking up path:', path);
     const db = await getFileContentsDB();
     
     // Helper to decode ArrayBuffer to string
@@ -913,7 +843,6 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
     let cached = await db.get('contents', path);
     
     if (cached && cached.content) {
-      console.log('[getFileContentFromCache] Found content for:', path);
       return decodeContent(cached.content);
     }
     
@@ -923,7 +852,6 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
       if (decodedPath !== path) {
         cached = await db.get('contents', decodedPath);
         if (cached && cached.content) {
-          console.log('[getFileContentFromCache] Found content with decoded path:', decodedPath);
           return decodeContent(cached.content);
         }
       }
@@ -937,7 +865,6 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
       if (normalizedPath !== path) {
         cached = await db.get('contents', normalizedPath);
         if (cached && cached.content) {
-          console.log('[getFileContentFromCache] Found content with normalized path:', normalizedPath);
           return decodeContent(cached.content);
         }
       }
@@ -947,7 +874,6 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
       if (normalizedDecodedPath !== normalizedPath) {
         cached = await db.get('contents', normalizedDecodedPath);
         if (cached && cached.content) {
-          console.log('[getFileContentFromCache] Found content with normalized+decoded path:', normalizedDecodedPath);
           return decodeContent(cached.content);
         }
       }
@@ -968,17 +894,10 @@ export async function getFileContentFromCache(path: string): Promise<string | nu
       });
       
       if (match && match.content) {
-        console.log('[getFileContentFromCache] Found content by filename match:', match.path);
         console.warn('[getFileContentFromCache] Path mismatch - requested:', path, 'found:', match.path);
         return decodeContent(match.content);
       }
     }
-    
-    console.log('[getFileContentFromCache] No content found for:', path);
-    
-    // Debug: List all keys in contents store
-    const allKeys = await db.getAllKeys('contents');
-    console.log('[getFileContentFromCache] Available keys in contents store (first 20):', allKeys.slice(0, 20));
     
     return null;
   } catch (error) {
@@ -1003,17 +922,14 @@ export async function readFileAsText(file: File | Blob, path?: string): Promise<
     
     const cachedContent = await getFileContentFromCache(filePath);
     if (cachedContent !== null) {
-      console.log('[readFileAsText] Using cached content from IndexedDB for:', filePath);
       return cachedContent;
     }
     
-    console.log('[readFileAsText] Reading File with file.text():', filePath);
     // Use native file.text() method - works in all modern browsers
     return file.text();
   }
   
   // For Blob objects, use FileReader
-  console.log('[readFileAsText] Reading Blob with FileReader');
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
