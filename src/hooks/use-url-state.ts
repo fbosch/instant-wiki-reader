@@ -18,10 +18,10 @@ function decodeFilePath(value: string): string {
 
 /**
  * Extract text fragment from current URL hash
+ * Only logs on actual text fragments to reduce console noise
  */
 function getTextFragmentFromHash(): string | null {
   const hash = window.location.hash;
-  console.log('[useUrlState] Reading hash:', hash);
   // Extract text fragment: #:~:text=something
   const match = hash.match(/#:~:text=(.+)/);
   if (match && match[1]) {
@@ -34,7 +34,6 @@ function getTextFragmentFromHash(): string | null {
       return match[1];
     }
   }
-  console.log('[useUrlState] No text fragment in hash');
   return null;
 }
 

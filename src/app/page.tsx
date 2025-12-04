@@ -239,27 +239,99 @@ function HomeContent() {
   // Check for either no directory tree (Firefox/fallback) or no root handle (native API)
   if (!ctx.directoryTree) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-        <div className="flex flex-col items-center gap-8 p-8 max-w-md text-center">
-          <FolderOpen className="w-24 h-24 text-slate-400 dark:text-slate-500" />
-          <div className="flex flex-col gap-4">
-            <h1 className="text-4xl font-bold text-slate-900 dark:text-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-8">
+        <div className="max-w-3xl w-full">
+          {/* Header */}
+          <div className="text-center mb-12">
+            <FolderOpen className="w-20 h-20 text-blue-600 dark:text-blue-500 mx-auto mb-6" />
+            <h1 className="text-5xl font-bold text-slate-900 dark:text-slate-50 mb-4">
               Instant Wiki Reader
             </h1>
-            <p className="text-lg text-slate-600 dark:text-slate-400">
-              Browse and read your local markdown wiki files directly in your browser.
+            <p className="text-xl text-slate-600 dark:text-slate-400">
+              Read your Azure DevOps wiki offline with lightning-fast search and navigation
             </p>
           </div>
-          <button
-            onClick={handleSelectDirectory}
-            className="flex items-center justify-center gap-3 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg hover:shadow-xl"
-          >
-            <FolderOpen className="w-5 h-5" />
-            Open Wiki Directory
-          </button>
-          <div className="flex flex-col gap-2 text-sm text-slate-500 dark:text-slate-400">
-            <p>Your files stay on your computer.</p>
-            <p>No upload, no server, completely private.</p>
+
+          {/* Step-by-step guide */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 mb-8">
+            <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-50 mb-6">
+              Quick Start Guide
+            </h2>
+            
+            <div className="space-y-6">
+              {/* Step 1 */}
+              <div className="flex gap-4">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-lg">
+                  1
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-2">
+                    Clone your Azure DevOps wiki repository
+                  </h3>
+                  <p className="text-slate-600 dark:text-slate-400 mb-3">
+                    In Azure DevOps, navigate to your wiki and clone it to your local machine using Git.
+                  </p>
+                  <div className="bg-slate-100 dark:bg-slate-900 rounded-lg p-3 font-mono text-sm text-slate-700 dark:text-slate-300">
+                    git clone https://dev.azure.com/your-org/your-project/_git/your-wiki.wiki
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div className="flex gap-4">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-lg">
+                  2
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-2">
+                    Select the wiki directory
+                  </h3>
+                  <p className="text-slate-600 dark:text-slate-400">
+                    Click the button below and choose the root folder of your cloned wiki repository.
+                  </p>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="flex gap-4">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-lg">
+                  3
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-2">
+                    Enjoy instant offline access
+                  </h3>
+                  <p className="text-slate-600 dark:text-slate-400">
+                    Browse files, search content instantly, and navigate with ease—all locally in your browser!
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* CTA Button */}
+            <div className="mt-8 pt-8 border-t border-slate-200 dark:border-slate-700">
+              <button
+                onClick={handleSelectDirectory}
+                className="w-full flex items-center justify-center gap-3 px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <FolderOpen className="w-6 h-6" />
+                Select Wiki Directory
+              </button>
+            </div>
+          </div>
+
+          {/* Privacy notice */}
+          <div className="text-center space-y-2 text-sm text-slate-500 dark:text-slate-400">
+            <div className="flex items-center justify-center gap-6">
+              <div className="flex items-center gap-2">
+                <span className="text-green-600 dark:text-green-500">✓</span>
+                <span>100% local - your files never leave your computer</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-green-600 dark:text-green-500">✓</span>
+                <span>No server, no uploads, completely private</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

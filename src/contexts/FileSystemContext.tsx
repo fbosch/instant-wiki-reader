@@ -173,13 +173,19 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           
           // Also try to get Azure DevOps context from .git/config
           // This is needed for work item link conversion
-          console.log('[FileSystemContext] Attempting to load Azure DevOps context from .git/config');
-          const azureContext = await getAzureDevOpsContext(savedHandle);
-          if (azureContext) {
-            console.log('[FileSystemContext] ✓ Loaded Azure DevOps context:', azureContext);
-            setAzureDevOpsContext(azureContext);
-          } else {
-            console.log('[FileSystemContext] No Azure DevOps context found');
+          // Wrapped in try-catch to prevent blocking initialization if it fails
+          try {
+            console.log('[FileSystemContext] Attempting to load Azure DevOps context from .git/config');
+            const azureContext = await getAzureDevOpsContext(savedHandle);
+            if (azureContext) {
+              console.log('[FileSystemContext] ✓ Loaded Azure DevOps context:', azureContext);
+              setAzureDevOpsContext(azureContext);
+            } else {
+              console.log('[FileSystemContext] No Azure DevOps context found');
+            }
+          } catch (error) {
+            console.warn('[FileSystemContext] Failed to load Azure DevOps context:', error);
+            // Non-critical - continue with initialization
           }
           
           // Build file path metadata map from cached metadata (lightweight)

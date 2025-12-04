@@ -14,11 +14,9 @@ console.log('[ContentSearchWorker] Module loading...');
 import MiniSearch from 'minisearch';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { expose } from 'comlink';
+import { FILE_CONTENTS_DB_NAME, FILE_CONTENTS_DB_VERSION } from '@/lib/db-constants';
 
 console.log('[ContentSearchWorker] Imports loaded');
-
-const FILE_CONTENTS_DB_NAME = 'wiki-file-contents';
-const FILE_CONTENTS_DB_VERSION = 4; // Must match main thread version!
 
 // Dynamic WASM module import
 let searchBytesModule: ((chunk: Uint8Array, pattern: string) => boolean) | null = null;

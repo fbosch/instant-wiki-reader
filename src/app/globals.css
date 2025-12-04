@@ -25,6 +25,43 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Text fragment highlighting (browser's ::target-text pseudo-element) */
+/* Match the search result highlighting style */
+::target-text {
+  background-color: rgb(254 240 138) !important; /* yellow-200 */
+  color: rgb(17 24 39) !important; /* slate-900 */
+  padding: 0.125rem 0.25rem !important; /* px-1 py-0.5 */
+  border-radius: 0.25rem !important; /* rounded */
+  font-weight: 600 !important; /* font-semibold */
+  border: 1px solid rgba(250, 204, 21, 0.3) !important; /* border-yellow-400/30 */
+}
+
+@media (prefers-color-scheme: dark) {
+  ::target-text {
+    background-color: rgba(234, 179, 8, 0.3) !important; /* yellow-500/30 */
+    color: rgb(254 240 138) !important; /* yellow-200 */
+    border-color: rgba(234, 179, 8, 0.5) !important; /* yellow-500/50 */
+  }
+}
+
+/* Manual text fragment highlighting (for client-side navigation) */
+mark.text-fragment-highlight {
+  background-color: rgb(254 240 138); /* yellow-200 */
+  color: rgb(17 24 39); /* slate-900 */
+  padding: 0.125rem 0.25rem; /* px-1 py-0.5 */
+  border-radius: 0.25rem; /* rounded */
+  font-weight: 600; /* font-semibold */
+  border: 1px solid rgba(250, 204, 21, 0.3); /* border-yellow-400/30 */
+}
+
+@media (prefers-color-scheme: dark) {
+  mark.text-fragment-highlight {
+    background-color: rgba(234, 179, 8, 0.3); /* yellow-500/30 */
+    color: rgb(254 240 138); /* yellow-200 */
+    border-color: rgba(234, 179, 8, 0.5); /* yellow-500/50 */
+  }
+}
+
 /* Syntax highlighting for code blocks */
 .hljs {
   display: block;

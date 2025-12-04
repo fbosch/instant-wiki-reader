@@ -8,6 +8,7 @@ import {
   createElement,
   useMemo,
   useRef,
+  useSyncExternalStore,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -31,6 +32,43 @@ interface MarkdownRendererProps {
     fontSize: number;
     lineHeight: number;
   };
+}
+
+/**
+ * Subscribe to hash changes
+ */
+function subscribeToHash(callback: () => void): () => void {
+  window.addEventListener('hashchange', callback);
+  return () => window.removeEventListener('hashchange', callback);
+}
+
+/**
+ * Get current hash
+ */
+function getHash(): string {
+  return typeof window !== 'undefined' ? window.location.hash : '';
+}
+
+/**
+ * Server snapshot (no hash on server)
+ */
+function getServerHash(): string {
+  return '';
+}
+
+/**
+ * Extract text fragment from hash
+ */
+function extractTextFragment(hash: string): string | null {
+  const match = hash.match(/#:~:text=(.+)/);
+  if (match) {
+    try {
+      return decodeURIComponent(match[1].replace(/%2D/g, '-'));
+    } catch {
+      return match[1];
+    }
+  }
+  return null;
 }
 
 /**
@@ -566,6 +604,28 @@ function preprocessMarkdown(
       },
     );
 
+    // Convert person mentions with GUIDs to links
+    // Match: @ or @<GUID>
+    // Example: @<32CD5341-9BDE-6624-931E-2A3B28F1F90C>
+    processed = processed.replace(
+      /@<([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})>/gi,
+      (match, guid) => {
+        // Try common Azure DevOps user profile URL patterns:
+        // Option 1: Modern dev.azure.com format
+        const userProfileUrl = `${azureDevOpsBaseUrl}/_usersSettings/about?userId=${guid}`;
+        
+        // Option 2: Classic format (uncomment to try)
+        // const userProfileUrl = `${azureDevOpsBaseUrl}/_settings/users?userId=${guid}`;
+        
+        // Option 3: Subject descriptor format (uncomment to try)
+        // const userProfileUrl = `${azureDevOpsBaseUrl}/_settings/users?subjectDescriptor=${guid}`;
+        
+        const link = `[@<${guid}>](${userProfileUrl})`;
+        console.log('[preprocessMarkdown] Converting person mention', match, 'to', link);
+        return link;
+      },
+    );
+
     // Restore existing links
     existingLinks.forEach((link, index) => {
       processed = processed.replace(`__EXISTING_LINK_${index}__`, link);
@@ -583,6 +643,66 @@ function preprocessMarkdown(
   }
 
   return processed;
+}
+
+/**
+ * Highlight text fragment in markdown content
+ * Wraps matching text with <mark> tags for visual highlighting
+ * 
+ * @param content - Markdown content to search
+ * @param textFragment - Text to highlight (from URL hash #:~:text=...)
+ * @returns Content with <mark> tags around matched text
+ */
+function highlightTextFragment(content: string, textFragment: string | null | undefined): string {
+  if (!textFragment || !content) {
+    return content;
+  }
+
+  try {
+    // Escape special regex characters in the search text
+    const escapedFragment = textFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    
+    // Create regex to match the text (case-insensitive, global)
+    const regex = new RegExp(`(${escapedFragment})`, 'gi');
+    
+    // Protect existing code blocks and inline code from highlighting
+    const codeBlocks: string[] = [];
+    const inlineCode: string[] = [];
+    
+    let protectedContent = content;
+    
+    // Protect code blocks
+    protectedContent = protectedContent.replace(/```[\s\S]*?```/g, (match) => {
+      codeBlocks.push(match);
+      return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+    });
+    
+    // Protect inline code
+    protectedContent = protectedContent.replace(/`[^`]+`/g, (match) => {
+      inlineCode.push(match);
+      return `__INLINE_CODE_${inlineCode.length - 1}__`;
+    });
+    
+    // Apply highlighting with <mark class="text-fragment-highlight">
+    // Using a class so we can style it consistently
+    const highlighted = protectedContent.replace(regex, '<mark class="text-fragment-highlight">$1</mark>');
+    
+    // Restore code blocks
+    let restored = highlighted;
+    codeBlocks.forEach((block, index) => {
+      restored = restored.replace(`__CODE_BLOCK_${index}__`, block);
+    });
+    
+    // Restore inline code
+    inlineCode.forEach((code, index) => {
+      restored = restored.replace(`__INLINE_CODE_${index}__`, code);
+    });
+    
+    return restored;
+  } catch (error) {
+    console.error('[highlightTextFragment] Error highlighting text:', error);
+    return content;
+  }
 }
 
 /**
@@ -642,6 +762,10 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
 }: MarkdownRendererProps) {
   const { azureDevOpsContext } = useFileSystem();
   
+  // Subscribe to hash changes to get text fragment
+  const currentHash = useSyncExternalStore(subscribeToHash, getHash, getServerHash);
+  const textFragment = extractTextFragment(currentHash);
+  
   // Extract theme colors
   const colors = themeConfig 
     ? colorThemes[themeConfig.colorTheme]
@@ -670,7 +794,13 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   );
 
   // Preprocess content to fix common markdown issues and add Azure DevOps links
-  const processedContent = preprocessMarkdown(content, azureDevOpsBaseUrl);
+  let processedContent = preprocessMarkdown(content, azureDevOpsBaseUrl);
+  
+  // Apply text fragment highlighting if present
+  if (textFragment) {
+    console.log("[MarkdownRenderer] Applying text fragment highlight:", textFragment);
+    processedContent = highlightTextFragment(processedContent, textFragment);
+  }
 
   console.log(
     "[MarkdownRenderer] Content sample (first 200 chars):",

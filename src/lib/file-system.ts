@@ -3,6 +3,7 @@ import { createStore, get, set, del } from 'idb-keyval';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { DirectoryNode, FileMeta } from '@/types';
 import { getFilePath } from '@/lib/path-manager';
+import { FILE_CONTENTS_DB_NAME, FILE_CONTENTS_DB_VERSION } from '@/lib/db-constants';
 
 /**
  * Safely access properties on file-like objects.
@@ -30,8 +31,6 @@ function safePropertyAccess<T>(obj: unknown, prop: string, defaultValue: T): T {
 
 const DIRECTORY_HANDLE_KEY = 'wiki-directory-handle';
 const CACHED_WIKI_NAME_KEY = 'wiki-cached-name';
-const FILE_CONTENTS_DB_NAME = 'wiki-file-contents';
-const FILE_CONTENTS_DB_VERSION = 4; // Incremented for new 'files' store
 
 // Create a custom store for idb-keyval to avoid conflicts
 const customStore = createStore('wiki-keyval-store', 'keyval');

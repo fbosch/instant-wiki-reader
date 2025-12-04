@@ -72,7 +72,7 @@ function HighlightedSnippet({ html }: { html: string }) {
         segment.isHighlight ? (
           <mark
             key={index}
-            className="bg-blue-200 dark:bg-blue-600/40 text-slate-900 dark:text-slate-50 px-0.5 rounded font-medium"
+            className="bg-yellow-200 dark:bg-yellow-500/30 text-slate-900 dark:text-yellow-200 px-1 py-0.5 rounded font-semibold border border-yellow-400/30 dark:border-yellow-500/50"
           >
             {segment.text}
           </mark>
@@ -235,24 +235,22 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                     <ComboboxOption
                       key={result.path}
                       value={result}
-                      className="w-full px-4 py-3 text-left transition-colors cursor-pointer"
-                      style={{
-                        // @ts-ignore - Headless UI typing issue with style
-                        '--hover-bg': theme.colorTheme === 'dark' || theme.colorTheme === 'black' 
-                          ? 'rgba(255, 255, 255, 0.05)' 
-                          : 'rgba(0, 0, 0, 0.05)',
-                      }}
-                      data-hover-bg
+                      className="w-full px-4 py-2 text-left cursor-pointer"
                     >
                       {({ focus }) => (
                         <div 
-                          className="flex items-start gap-3"
+                          className="flex items-start gap-3 p-3 rounded-lg transition-all duration-150"
                           style={{
                             backgroundColor: focus 
                               ? (theme.colorTheme === 'dark' || theme.colorTheme === 'black' 
-                                  ? 'rgba(59, 130, 246, 0.1)' 
-                                  : 'rgba(59, 130, 246, 0.08)')
+                                  ? 'rgba(59, 130, 246, 0.15)' 
+                                  : 'rgba(59, 130, 246, 0.1)')
                               : 'transparent',
+                            border: focus 
+                              ? `1px solid ${theme.colorTheme === 'dark' || theme.colorTheme === 'black' 
+                                  ? 'rgba(59, 130, 246, 0.3)' 
+                                  : 'rgba(59, 130, 246, 0.2)'}`
+                              : '1px solid transparent',
                           }}
                         >
                           <FileText className="w-4 h-4 mt-1 flex-shrink-0" style={{ color: colors.secondary }} />
