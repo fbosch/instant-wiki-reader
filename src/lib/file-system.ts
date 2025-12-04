@@ -285,6 +285,8 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
       return name.endsWith('.md') || name.endsWith('.markdown');
     });
     
+    console.log(`[cacheFiles] Found ${mdFiles.length} markdown files to cache contents for`);
+    
     for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {
       const batch = mdFiles.slice(i, Math.min(i + BATCH_SIZE, mdFiles.length));
       
@@ -317,8 +319,11 @@ export async function cacheFiles(files: File[], wikiName: string): Promise<void>
           mdFilesCount++;
         }
         await contentsTx.done;
+        console.log(`[cacheFiles] Batch ${Math.floor(i / BATCH_SIZE) + 1}: Cached ${contentsToWrite.length} file contents`);
       }
     }
+    
+    console.log(`[cacheFiles] Successfully cached ${mdFilesCount} markdown file contents`);
   } catch (error) {
     console.error('[cacheFiles] Failed to cache files:', error);
     // Don't throw - caching is optional

@@ -90,6 +90,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const selectedItemRef = useRef<HTMLButtonElement>(null);
 
   // Focus input when opened
   useEffect(() => {
@@ -144,6 +145,16 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       }
     };
   }, [query, performSearch]);
+
+  // Scroll selected item into view when selection changes
+  useEffect(() => {
+    if (selectedItemRef.current) {
+      selectedItemRef.current.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth',
+      });
+    }
+  }, [selectedIndex]);
 
   // Handle keyboard navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -225,6 +236,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
               {results.map((result, index) => (
                 <button
                   key={result.path}
+                  ref={index === selectedIndex ? selectedItemRef : null}
                   onClick={() => handleSelectResult(result)}
                   onMouseEnter={() => setSelectedIndex(index)}
                   className={`w-full px-4 py-3 text-left transition-colors ${

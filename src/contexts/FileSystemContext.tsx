@@ -135,14 +135,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
               console.log('[FileSystemContext] No cached File objects - will use IndexedDB only');
             }
             
-            // Build search index in background (will load content from IndexedDB as needed)
-            if (contentSearchWorker) {
-              contentSearchWorker.buildIndex().then((result) => {
-                console.log('[FileSystemContext] Search index built from cache:', result);
-              }).catch((error) => {
-                console.error('[FileSystemContext] Error building search index:', error);
-              });
-            }
+            // Worker will auto-build index from IndexedDB
           } else {
             console.log('[FileSystemContext] No cached metadata found, showing welcome screen');
           }
@@ -317,12 +310,10 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           cacheFiles(files, wikiNameValue).then(() => {
             console.log('[FileSystemContext] Background caching complete');
             setIsCaching(false);
-            // Build search index after caching completes
+            // Tell worker to rebuild index now that files are cached
             if (contentSearchWorker) {
               contentSearchWorker.buildIndex().then((result) => {
-                console.log('[FileSystemContext] Search index built:', result);
-              }).catch((error) => {
-                console.error('[FileSystemContext] Error building search index:', error);
+                console.log('[FileSystemContext] Index rebuilt after caching:', result);
               });
             }
           }).catch((error) => {
@@ -482,17 +473,23 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   // Full-text content search using worker
   const searchContent = useCallback(
     async (query: string): Promise<import('@/types').ContentSearchResult[]> => {
+      console.log(`[FileSystemContext] searchContent called with query: "${query}"`);
+      console.log(`[FileSystemContext] contentSearchWorker available: ${!!contentSearchWorker}`);
+      
       if (!contentSearchWorker) {
         console.warn('[FileSystemContext] Content search worker not available');
         return [];
       }
 
       if (!query || query.trim().length === 0) {
+        console.log('[FileSystemContext] Empty query');
         return [];
       }
 
       try {
+        console.log(`[FileSystemContext] Calling worker.search("${query.trim()}")`);
         const results = await contentSearchWorker.search(query.trim());
+        console.log(`[FileSystemContext] Worker returned ${results.length} results`);
         return results;
       } catch (error) {
         console.error('[FileSystemContext] Content search error:', error);

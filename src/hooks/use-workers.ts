@@ -93,6 +93,12 @@ function initializeWorkers() {
     contentSearchWorkerInstance,
   );
 
+  // Trigger auto-initialization in the worker
+  console.log('[useWorkers] Triggering worker initialization...');
+  workerStore.contentSearchWorker.getStatus().then(status => {
+    console.log('[useWorkers] Worker status after init:', status);
+  });
+
   // Notify subscribers
   subscribers.forEach((callback) => callback());
 }
