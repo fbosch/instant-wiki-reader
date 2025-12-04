@@ -39,13 +39,17 @@ function FileTreeItem({
 
   const handleClick = () => {
     if (item.type === 'file') {
-      openFile(item.path);
+      openFile(item.path).catch((error) => {
+        console.error('Failed to open file:', item.path, error);
+      });
       tree.setSelectedKeys(new Set([node.key]));
     } else {
       // For directories, expand and open index file if it exists
       onToggleExpand(node.key);
       if (item.indexFile) {
-        openFile(item.indexFile);
+        openFile(item.indexFile).catch((error) => {
+          console.error('Failed to open index file:', item.indexFile, error);
+        });
       }
     }
   };

@@ -25,6 +25,7 @@ import {
   cacheFiles,
   loadCachedFiles,
   clearCachedFiles,
+  cleanWikiName,
 } from '@/lib/file-system';
 import { pickDirectory, verifyPermission, readDirectory } from '@/lib/fs-access';
 import { useWorkers } from '@/hooks/use-workers';
@@ -328,8 +329,10 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         if (files.length > 0) {
           const firstPath = files[0].webkitRelativePath || files[0].name;
           const rootDirName = firstPath.split('/')[0];
-          wikiNameValue = rootDirName;
-          dispatch({ type: 'SET_WIKI_NAME', payload: rootDirName });
+          
+          // Clean up the wiki name for display
+          wikiNameValue = cleanWikiName(rootDirName);
+          dispatch({ type: 'SET_WIKI_NAME', payload: wikiNameValue });
         }
         
         // Cache files for next page load

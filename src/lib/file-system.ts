@@ -469,7 +469,7 @@ export function getFileByPath(files: File[], path: string): File | undefined {
     decodedPath = path;
   }
   
-  return files.find((file) => {
+  const found = files.find((file) => {
     const filePath = file.webkitRelativePath || file.name;
     
     // Try exact match first
@@ -488,6 +488,40 @@ export function getFileByPath(files: File[], path: string): File | undefined {
     
     return false;
   });
+
+  if (!found) {
+    console.error(`[getFileByPath] File not found: "${path}"`);
+    console.error(`[getFileByPath] Decoded path: "${decodedPath}"`);
+    console.error(`[getFileByPath] Available files (first 10):`, files.slice(0, 10).map(f => f.webkitRelativePath || f.name));
+  }
+
+  return found;
+}
+
+/**
+ * Clean up wiki name for display.
+ * Removes .wiki suffix and other common artifacts.
+ * 
+ * @param name - Raw wiki name
+ * @returns Cleaned wiki name
+ */
+export function cleanWikiName(name: string): string {
+  let cleaned = name;
+  
+  // Remove .wiki suffix (common in Azure DevOps)
+  if (cleaned.endsWith('.wiki')) {
+    cleaned = cleaned.slice(0, -5);
+  }
+  
+  // Replace hyphens and underscores with spaces for readability
+  // But keep the original if it's a single word
+  if (cleaned.includes('-') || cleaned.includes('_')) {
+    const spaced = cleaned.replace(/[-_]/g, ' ');
+    // Capitalize first letter of each word
+    cleaned = spaced.replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+  
+  return cleaned;
 }
 
 /**
@@ -540,7 +574,11 @@ export async function getAzureDevOpsContext(
     if (match) {
       const organization = match[1];
       const project = decodeURIComponent(match[2]);
-      const wikiName = decodeURIComponent(match[3]);
+      let wikiName = decodeURIComponent(match[3]);
+      
+      // Clean up the wiki name for display
+      wikiName = cleanWikiName(wikiName);
+      
       const baseUrl = visualStudioMatch 
         ? `https://${organization}.visualstudio.com`
         : `https://dev.azure.com/${organization}`;

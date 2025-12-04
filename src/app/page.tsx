@@ -118,12 +118,12 @@ function HomeContent() {
       <aside className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col h-full">
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-              Directory
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50 truncate pr-2">
+              {ctx.wikiName || 'Directory'}
             </h2>
             <button
               onClick={handleSelectDirectory}
-              className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+              className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors flex-shrink-0"
             >
               Change
             </button>
