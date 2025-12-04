@@ -1,10 +1,19 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { useFileSystem } from '@/contexts/FileSystemContext';
-import { Search, FileText, Loader2, X } from 'lucide-react';
+import { useUrlState } from '@/hooks/use-url-state';
+import { Search, FileText, Loader2 } from 'lucide-react';
 import { formatFileName } from '@/lib/utils';
 import type { ContentSearchResult } from '@/types';
+import { 
+  Combobox, 
+  ComboboxInput, 
+  ComboboxOptions, 
+  ComboboxOption, 
+  Dialog, 
+  Transition 
+} from '@headlessui/react';
 
 /**
  * Parse HTML snippet with <mark> tags and render as React components
@@ -81,26 +90,15 @@ interface CommandPaletteProps {
 /**
  * Command palette for fuzzy full-text content search
  * Triggered by Cmd+K / Ctrl+K
+ * Uses Headless UI for better accessibility and keyboard navigation
  */
 export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
-  const { searchContent, openFile } = useFileSystem();
+  const { searchContent } = useFileSystem();
+  const { updateUrl } = useUrlState();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ContentSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const selectedItemRef = useRef<HTMLButtonElement>(null);
-
-  // Focus input when opened
-  useEffect(() => {
-    if (isOpen) {
-      inputRef.current?.focus();
-      setQuery('');
-      setResults([]);
-      setSelectedIndex(0);
-    }
-  }, [isOpen]);
 
   // Handle search with debouncing
   const performSearch = useCallback(async (searchQuery: string) => {
@@ -114,7 +112,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     try {
       const searchResults = await searchContent(searchQuery);
       setResults(searchResults);
-      setSelectedIndex(0);
     } catch (error) {
       console.error('Search failed:', error);
       setResults([]);
@@ -146,153 +143,124 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     };
   }, [query, performSearch]);
 
-  // Scroll selected item into view when selection changes
-  useEffect(() => {
-    if (selectedItemRef.current) {
-      selectedItemRef.current.scrollIntoView({
-        block: 'nearest',
-        behavior: 'smooth',
-      });
+  const handleSelectResult = useCallback((result: ContentSearchResult | null) => {
+    if (!result) return;
+    
+    // Extract first matched text from result for text fragment navigation
+    let textFragment: string | null = null;
+    const firstMatch = Object.values(result.match)[0]?.[0];
+    if (firstMatch) {
+      // Extract text from <mark>text</mark> pattern
+      const markMatch = firstMatch.match(/<mark>(.*?)<\/mark>/);
+      if (markMatch && markMatch[1]) {
+        // Decode HTML entities
+        textFragment = markMatch[1]
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#039;/g, "'")
+          .replace(/&amp;/g, '&');
+      }
     }
-  }, [selectedIndex]);
-
-  // Handle keyboard navigation
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    switch (e.key) {
-      case 'Escape':
-        onClose();
-        break;
-      case 'ArrowDown':
-        e.preventDefault();
-        setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1));
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        setSelectedIndex((prev) => Math.max(prev - 1, 0));
-        break;
-      case 'Enter':
-        e.preventDefault();
-        if (results[selectedIndex]) {
-          handleSelectResult(results[selectedIndex]);
-        }
-        break;
-    }
-  }, [results, selectedIndex, onClose]);
-
-  const handleSelectResult = useCallback(async (result: ContentSearchResult) => {
-    try {
-      await openFile(result.path);
-      onClose();
-    } catch (error) {
-      console.error('Failed to open file:', error);
-    }
-  }, [openFile, onClose]);
-
-  if (!isOpen) return null;
+    
+    // Update URL with file path and text fragment
+    // The page's URL restoration logic will handle opening the file
+    updateUrl({ 
+      file: result.path,
+      textFragment 
+    });
+    
+    onClose();
+  }, [updateUrl, onClose]);
 
   return (
-    <div 
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-start justify-center pt-[20vh]"
-      onClick={onClose}
-    >
-      <div 
-        className="w-full max-w-2xl bg-white dark:bg-slate-800 rounded-lg shadow-2xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Search Input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
-          <Search className="w-5 h-5 text-slate-400" />
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search file contents... (Cmd+Shift+F)"
-            className="flex-1 bg-transparent text-slate-900 dark:text-slate-50 placeholder-slate-400 outline-none text-base"
-          />
-          {isSearching && (
-            <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
-          )}
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
-            aria-label="Close"
-          >
-            <X className="w-5 h-5 text-slate-400" />
-          </button>
-        </div>
+    <Transition show={isOpen} as={Fragment}>
+      <Dialog onClose={onClose} className="relative z-50">
+        {/* Backdrop */}
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity data-[closed]:opacity-0 data-[enter]:ease-out data-[enter]:duration-200 data-[leave]:ease-in data-[leave]:duration-150" />
 
-        {/* Results */}
-        <div className="max-h-[60vh] overflow-y-auto">
-          {query.trim() && !isSearching && results.length === 0 && (
-            <div className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
-              No results found for "{query}"
-            </div>
-          )}
+        {/* Dialog positioning */}
+        <div className="fixed inset-0 flex items-start justify-center pt-[20vh]">
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-800 rounded-lg shadow-2xl overflow-hidden transition-all data-[closed]:scale-95 data-[closed]:opacity-0 data-[enter]:ease-out data-[enter]:duration-200 data-[leave]:ease-in data-[leave]:duration-150">
+            <Combobox value={null} onChange={handleSelectResult}>
+                {/* Search Input */}
+                <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+                  <Search className="w-5 h-5 text-slate-400 flex-shrink-0" />
+                  <ComboboxInput
+                    autoFocus
+                    className="flex-1 bg-transparent text-slate-900 dark:text-slate-50 placeholder-slate-400 outline-none text-base"
+                    placeholder="Search file contents... (Cmd+Shift+F)"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                  {isSearching && (
+                    <Loader2 className="w-5 h-5 text-blue-500 animate-spin flex-shrink-0" />
+                  )}
+                </div>
 
-          {results.length > 0 && (
-            <div className="py-2">
-              {results.map((result, index) => (
-                <button
-                  key={result.path}
-                  ref={index === selectedIndex ? selectedItemRef : null}
-                  onClick={() => handleSelectResult(result)}
-                  onMouseEnter={() => setSelectedIndex(index)}
-                  className={`w-full px-4 py-3 text-left transition-colors ${
-                    index === selectedIndex
-                      ? 'bg-blue-50 dark:bg-blue-900/20'
-                      : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <FileText className="w-4 h-4 text-slate-400 mt-1 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      {/* File name */}
-                      <div className="font-medium text-slate-900 dark:text-slate-50 truncate">
-                        {formatFileName(result.title, true)}
-                      </div>
-                      
-                      {/* File path */}
-                      <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                        {result.path}
-                      </div>
+                {/* Results */}
+                <ComboboxOptions static className="max-h-[60vh] overflow-y-auto">
+                  {query.trim() && !isSearching && results.length === 0 && (
+                    <div className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                      No results found for "{query}"
+                    </div>
+                  )}
 
-                      {/* Matched snippets */}
-                      {result.match && Object.keys(result.match).length > 0 && (
-                        <div className="mt-2 space-y-1">
-                          {Object.entries(result.match).slice(0, 2).map(([, matches], i) => (
-                            <div key={i} className="text-sm text-slate-600 dark:text-slate-300">
-                              {matches.slice(0, 1).map((match, j) => (
-                                <div key={j} className="truncate">
-                                  <HighlightedSnippet html={match} />
+                  {!query.trim() && (
+                    <div className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                      <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>Type to search file contents</p>
+                      <p className="text-xs mt-1">Use ↑↓ to navigate, Enter to open</p>
+                    </div>
+                  )}
+
+                  {results.map((result) => (
+                    <ComboboxOption
+                      key={result.path}
+                      value={result}
+                      className="w-full px-4 py-3 text-left transition-colors cursor-pointer data-[focus]:bg-blue-50 dark:data-[focus]:bg-blue-900/20 hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                    >
+                      <div className="flex items-start gap-3">
+                        <FileText className="w-4 h-4 text-slate-400 mt-1 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          {/* File name */}
+                          <div className="font-medium text-slate-900 dark:text-slate-50 truncate">
+                            {formatFileName(result.title, true)}
+                          </div>
+                          
+                          {/* File path */}
+                          <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                            {result.path}
+                          </div>
+
+                          {/* Matched snippets */}
+                          {result.match && Object.keys(result.match).length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {Object.entries(result.match).slice(0, 2).map(([, matches], i) => (
+                                <div key={i} className="text-sm text-slate-600 dark:text-slate-300">
+                                  {matches.slice(0, 1).map((match, j) => (
+                                    <div key={j} className="truncate">
+                                      <HighlightedSnippet html={match} />
+                                    </div>
+                                  ))}
                                 </div>
                               ))}
                             </div>
-                          ))}
+                          )}
+                          
+                          {/* Score indicator */}
+                          <div className="text-xs text-slate-400 mt-1">
+                            Relevance: {Math.round(result.score * 100) / 100}
+                          </div>
                         </div>
-                      )}
-                      
-                      {/* Score indicator */}
-                      <div className="text-xs text-slate-400 mt-1">
-                        Relevance: {Math.round(result.score * 100) / 100}
                       </div>
-                    </div>
-                  </div>
-                </button>
-              ))}
+                    </ComboboxOption>
+                  ))}
+                </ComboboxOptions>
+              </Combobox>
             </div>
-          )}
-
-          {!query.trim() && (
-            <div className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
-              <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>Type to search file contents</p>
-              <p className="text-xs mt-1">Use ↑↓ to navigate, Enter to open</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+          </div>
+        </Dialog>
+      </Transition>
   );
 }

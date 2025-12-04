@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.9",
     "@netgrep/netgrep": "^0.1.5",
     "@netgrep/search": "^0.1.5",
     "@react-aria/focus": "^3.21.2",

@@ -1,7 +1,7 @@
 'use client';
 
 import { parseAsString, parseAsArrayOf, useQueryStates } from 'nuqs';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * Helper function to decode URL-encoded file paths
@@ -27,7 +27,7 @@ const expandedParser = parseAsArrayOf(parseAsString, ',').withDefault([]);
 
 /**
  * Custom hook for managing application state in URL parameters using nuqs.
- * Provides functions to update file path and expanded directories in the URL.
+ * Provides functions to update file path, expanded directories, and text fragments in the URL.
  */
 export function useUrlState() {
   const [state, setState] = useQueryStates(
@@ -41,7 +41,39 @@ export function useUrlState() {
     }
   );
 
-  const updateUrl = useCallback((updates: { file?: string | null; expanded?: Set<string> | null }) => {
+  // Track text fragment separately (hash is not managed by nuqs)
+  const [textFragment, setTextFragment] = useState<string | null>(null);
+
+  // Listen for hash changes to extract text fragments
+  useEffect(() => {
+    const updateTextFragment = () => {
+      const hash = window.location.hash;
+      // Extract text fragment: #:~:text=something
+      const match = hash.match(/#:~:text=(.+)/);
+      if (match && match[1]) {
+        try {
+          setTextFragment(decodeURIComponent(match[1]));
+        } catch {
+          setTextFragment(match[1]);
+        }
+      } else {
+        setTextFragment(null);
+      }
+    };
+
+    // Initial check
+    updateTextFragment();
+
+    // Listen for hash changes
+    window.addEventListener('hashchange', updateTextFragment);
+    return () => window.removeEventListener('hashchange', updateTextFragment);
+  }, []);
+
+  const updateUrl = useCallback((updates: { 
+    file?: string | null; 
+    expanded?: Set<string> | null;
+    textFragment?: string | null;
+  }) => {
     const newState: { file?: string | null; expanded?: string[] | null } = {};
 
     // Update file parameter
@@ -57,6 +89,17 @@ export function useUrlState() {
     }
 
     setState(newState);
+
+    // Handle text fragment separately (it's a hash, not a query param)
+    if (updates.textFragment !== undefined) {
+      if (updates.textFragment) {
+        // Add text fragment to URL
+        window.location.hash = `#:~:text=${encodeURIComponent(updates.textFragment)}`;
+      } else {
+        // Clear text fragment
+        window.location.hash = '';
+      }
+    }
   }, [setState]);
 
   const getFileFromUrl = useCallback(() => {
@@ -71,9 +114,14 @@ export function useUrlState() {
     return new Set(state.expanded);
   }, [state.expanded]);
 
+  const getTextFragmentFromUrl = useCallback(() => {
+    return textFragment;
+  }, [textFragment]);
+
   return {
     updateUrl,
     getFileFromUrl,
     getExpandedFromUrl,
+    getTextFragmentFromUrl,
   };
 }

@@ -43,7 +43,7 @@ function HomeContent() {
     }
   }, [ctx.wikiName]);
 
-  // Restore state from URL on mount
+  // Restore state from URL on mount and when URL changes
   useEffect(() => {
     // Wait for tree to be ready (files will be loaded on-demand if needed)
     if (!ctx.directoryTree) {
@@ -85,7 +85,7 @@ function HomeContent() {
       setExpandedDirsValtio(expandedDirs);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.directoryTree]); // Only wait for tree
+  }, [ctx.directoryTree, getFileFromUrl]); // React to tree and URL changes
 
   // Handle hash scrolling when file content changes or hash changes
   useEffect(() => {

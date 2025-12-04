@@ -501,10 +501,15 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
 }: MarkdownRendererProps) {
   const { azureDevOpsContext } = useFileSystem();
 
-  // Guard against invalid content
-  if (!content || typeof content !== 'string') {
+  // Guard against invalid content (but empty string is valid)
+  if (typeof content !== 'string') {
     console.error('[MarkdownRenderer] Invalid content:', typeof content, content);
     return <div className="text-red-500">Error: Invalid content</div>;
+  }
+
+  // Handle empty content
+  if (content === '') {
+    return <div className="text-slate-500 dark:text-slate-400 italic">This file is empty</div>;
   }
 
   // Build Azure DevOps base URL for work items
