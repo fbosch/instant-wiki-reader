@@ -42,7 +42,18 @@ export function getFilePath(fileOrMeta: File | { path: string; name?: string }):
   // If it's a File object, try webkitRelativePath (cross-browser support)
   const file = fileOrMeta as File;
   
-  // Try webkitRelativePath first
+  // Try WeakMap first (Firefox-safe fallback for cached files)
+  try {
+    const { getFilePathMapping } = require('@/lib/file-system');
+    const mappedPath = getFilePathMapping(file);
+    if (typeof mappedPath === 'string' && mappedPath.length > 0) {
+      return mappedPath;
+    }
+  } catch (e) {
+    // Ignore - file-system module might not be loaded yet
+  }
+  
+  // Try webkitRelativePath
   const webkitPath = safeGetProperty(file, 'webkitRelativePath', '');
   if (typeof webkitPath === 'string' && webkitPath.length > 0) {
     return webkitPath;

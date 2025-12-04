@@ -166,7 +166,19 @@ export async function saveDirectoryHandle(
   }
 }
 
-// Extended interface for handles with permission methods
+// Store file path metadata map OUTSIDE to avoid issues with File object property access
+// Maps File objects to their original paths (needed for Firefox where webkitRelativePath restoration fails)
+const fileToPathMap = new WeakMap<File, string>();
+
+export function setFilePathMapping(file: File, path: string): void {
+  fileToPathMap.set(file, path);
+}
+
+export function getFilePathMapping(file: File): string | undefined {
+  return fileToPathMap.get(file);
+}
+
+// Extended interface for directory handles with permission methods
 interface FileSystemHandleWithPermissions extends FileSystemDirectoryHandle {
   queryPermission?: (descriptor: { mode: 'read' | 'readwrite' }) => Promise<PermissionState>;
   requestPermission?: (descriptor: { mode: 'read' | 'readwrite' }) => Promise<PermissionState>;
@@ -387,6 +399,9 @@ export async function loadCachedFiles(): Promise<File[] | null> {
     const files = allFileRecords.map((record, index) => {
       const file = record.file;
       
+      // Store the path in WeakMap for reliable retrieval (Firefox-safe)
+      setFilePathMapping(file, record.path);
+      
       // Check if webkitRelativePath is missing or empty
       const currentPath = safeFileAccess(file, 'webkitRelativePath', '');
       
@@ -409,8 +424,17 @@ export async function loadCachedFiles(): Promise<File[] | null> {
             enumerable: true,
             configurable: true,
           });
+          
+          // Verify it actually worked
+          const verifyPath = safeFileAccess(file, 'webkitRelativePath', '');
           if (index < 3) {
             console.log(`[loadCachedFiles] ✓ Restored webkitRelativePath from "${currentPath}" to "${record.path}"`);
+            console.log(`[loadCachedFiles]   Verification: getFilePath returns "${getFilePath(file)}"`);
+            console.log(`[loadCachedFiles]   WeakMap fallback: "${getFilePathMapping(file)}"`);
+          }
+          
+          if (verifyPath !== record.path) {
+            console.warn(`[loadCachedFiles] ⚠️ Path restoration failed! Expected "${record.path}", got "${verifyPath}"`);
           }
         } catch (e) {
           console.warn(`[loadCachedFiles] Failed to restore webkitRelativePath for ${record.path}:`, e);

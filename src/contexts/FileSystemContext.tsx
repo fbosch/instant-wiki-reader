@@ -25,6 +25,7 @@ import {
   loadCachedFileMetadata,
   clearCachedFiles,
   cleanWikiName,
+  getFileByPath,
 } from '@/lib/file-system';
 import { pickDirectory, verifyPermission, readDirectory } from '@/lib/fs-access';
 import { getFileByDisplayPath, getFilePath } from '@/lib/path-manager';
@@ -381,14 +382,15 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
           console.log('[openFile] Cache miss, trying allFiles... (length:', allFiles.length, ')');
           
           if (allFiles.length > 0) {
-            const file = allFiles.find(f => getFilePath(f) === path);
+            // Use getFileByPath which handles URL encoding/decoding
+            const file = getFileByPath(allFiles, path);
             
             if (file) {
               console.log('[openFile] ✓ Found file in allFiles, reading...');
               content = await readFileAsText(file);
             } else {
               console.log('[openFile] File not found in allFiles');
-              console.log('[openFile] Sample paths from allFiles:', allFiles.slice(0, 3).map(f => getFilePath(f)));
+              console.log('[openFile] Looking for:', path);
             }
           }
         }

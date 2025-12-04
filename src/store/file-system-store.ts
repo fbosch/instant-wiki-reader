@@ -145,8 +145,17 @@ export function setAllFiles(files: File[]) {
     console.log('[setAllFiles] Imported getFilePath');
     
     for (const file of files) {
-      const path = getFilePath(file);
-      globalFilePathMetadata.set(path, { path, name: file.name });
+      const rawPath = getFilePath(file);
+      // Decode the path to handle URL-encoded characters (e.g., %2D -> -)
+      // This ensures consistent path storage regardless of how File objects encode their paths
+      let decodedPath = rawPath;
+      try {
+        decodedPath = decodeURIComponent(rawPath);
+      } catch (e) {
+        // If decoding fails, use the raw path
+        console.warn('[setAllFiles] Failed to decode path:', rawPath, e);
+      }
+      globalFilePathMetadata.set(decodedPath, { path: decodedPath, name: file.name });
     }
     
     console.log('[setAllFiles] Built metadata map with', globalFilePathMetadata.size, 'entries (took', (performance.now() - startTime).toFixed(2), 'ms)');
