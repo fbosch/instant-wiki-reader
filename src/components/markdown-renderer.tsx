@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useEffect, useCallback, createElement } from 'react';
+import { memo, useState, useEffect, useCallback, createElement, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkWikiLink from 'remark-wiki-link';
@@ -67,30 +67,45 @@ function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImage
 
   const srcString = typeof src === 'string' ? src : '';
 
-  useEffect(() => {
-    if (!srcString || !currentFile || !rootHandle) {
-      return;
-    }
+  // Check if this is an external URL or needs file system loading
+  const isExternalUrl = useMemo(() => {
+    return srcString.startsWith('http://') || srcString.startsWith('https://') || srcString.startsWith('data:');
+  }, [srcString]);
 
-    // If external URL, no need to process
-    if (srcString.startsWith('http://') || srcString.startsWith('https://') || srcString.startsWith('data:')) {
+  // Compute resolved path and check cache (outside effect to avoid sync setState)
+  const { resolvedPath, cachedUrl } = useMemo(() => {
+    if (!srcString || !currentFile || isExternalUrl) {
+      return { resolvedPath: null, cachedUrl: null };
+    }
+    const path = resolveImagePath(srcString, currentFile.path);
+    return {
+      resolvedPath: path,
+      cachedUrl: blobCache.get(path) || null,
+    };
+  }, [srcString, currentFile, isExternalUrl]);
+
+  useEffect(() => {
+    // Handle external URLs
+    if (isExternalUrl) {
       setBlobUrl(srcString);
       return;
     }
 
-    const resolvedPath = resolveImagePath(srcString, currentFile.path);
-    
-    // Check cache first
-    if (blobCache.has(resolvedPath)) {
-      setBlobUrl(blobCache.get(resolvedPath)!);
+    // Handle cached URLs
+    if (cachedUrl) {
+      setBlobUrl(cachedUrl);
       return;
     }
 
-    // Load image from file system
+    // Need to load from file system
+    if (!resolvedPath || !rootHandle) {
+      return;
+    }
+
     let cancelled = false;
 
     async function loadImage() {
-      if (!rootHandle) return;
+      if (!rootHandle || !resolvedPath) return;
       
       try {
         const pathParts = resolvedPath.split('/');
@@ -126,7 +141,7 @@ function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImage
     return () => {
       cancelled = true;
     };
-  }, [srcString, currentFile, rootHandle]);
+  }, [srcString, isExternalUrl, cachedUrl, resolvedPath, rootHandle]);
 
   if (error) {
     return (
@@ -274,18 +289,63 @@ function preprocessMarkdown(content: string, azureDevOpsBaseUrl?: string): strin
   processed = processed.replace(/^(#{1,6})([^\s#])/gm, '$1 $2');
   
   // Convert Azure DevOps work item references to links
-  // Matches: #12345 (but not in code blocks, URLs, or at start of line which would be headers)
   if (azureDevOpsBaseUrl) {
-    // Pattern explanation:
-    // (?<!^) - Not at start of line (negative lookbehind to avoid headers)
-    // (?<!`) - Not preceded by backtick (avoid inline code)
-    // (?<!\[) - Not preceded by [ (avoid existing markdown links)
-    // #(\d{4,}) - # followed by 4+ digits (work item ID)
-    // (?!`) - Not followed by backtick (avoid inline code)
-    processed = processed.replace(
-      /(?<!^)(?<!`)(?<!\[)#(\d{4,})(?!`)/gm,
-      `[#$1](${azureDevOpsBaseUrl}/_workitems/edit/$1)`
-    );
+    // Protect code blocks and inline code from replacement
+    const codeBlocks: string[] = [];
+    const inlineCode: string[] = [];
+    
+    // Save code blocks
+    processed = processed.replace(/```[\s\S]*?```/g, (match) => {
+      const index = codeBlocks.length;
+      codeBlocks.push(match);
+      return `__CODE_BLOCK_${index}__`;
+    });
+    
+    // Save inline code
+    processed = processed.replace(/`[^`]+`/g, (match) => {
+      const index = inlineCode.length;
+      inlineCode.push(match);
+      return `__INLINE_CODE_${index}__`;
+    });
+    
+    // Save existing markdown links to avoid double-linking
+    const existingLinks: string[] = [];
+    processed = processed.replace(/\[[^\]]+\]\([^)]+\)/g, (match) => {
+      const index = existingLinks.length;
+      existingLinks.push(match);
+      return `__EXISTING_LINK_${index}__`;
+    });
+    
+    // Now convert work item references
+    // Match: # followed by 4+ digits, but not at start of line after ## (headers)
+    processed = processed.replace(/(\s|^)#(\d{4,})\b/gm, (match, prefix, id) => {
+      // Check if this line starts with # (header)
+      const beforeMatch = processed.substring(0, processed.indexOf(match));
+      const lastNewline = beforeMatch.lastIndexOf('\n');
+      const lineStart = processed.substring(lastNewline + 1);
+      
+      // Skip if line starts with # (it's a header)
+      if (lineStart.trim().match(/^#{1,6}\d/)) {
+        return match;
+      }
+      
+      return `${prefix}[#${id}](${azureDevOpsBaseUrl}/_workitems/edit/${id})`;
+    });
+    
+    // Restore existing links
+    existingLinks.forEach((link, index) => {
+      processed = processed.replace(`__EXISTING_LINK_${index}__`, link);
+    });
+    
+    // Restore inline code
+    inlineCode.forEach((code, index) => {
+      processed = processed.replace(`__INLINE_CODE_${index}__`, code);
+    });
+    
+    // Restore code blocks
+    codeBlocks.forEach((block, index) => {
+      processed = processed.replace(`__CODE_BLOCK_${index}__`, block);
+    });
   }
   
   return processed;
@@ -347,8 +407,14 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
     ? `${azureDevOpsContext.baseUrl}/${encodeURIComponent(azureDevOpsContext.project)}`
     : undefined;
   
+  console.log('[MarkdownRenderer] Azure DevOps context:', azureDevOpsContext);
+  console.log('[MarkdownRenderer] Base URL for work items:', azureDevOpsBaseUrl);
+  
   // Preprocess content to fix common markdown issues and add Azure DevOps links
   const processedContent = preprocessMarkdown(content, azureDevOpsBaseUrl);
+  
+  console.log('[MarkdownRenderer] Content sample (first 200 chars):', content.substring(0, 200));
+  console.log('[MarkdownRenderer] Processed sample (first 200 chars):', processedContent.substring(0, 200));
   
   return (
     <div className={cn('prose prose-slate dark:prose-invert max-w-none', className)}>

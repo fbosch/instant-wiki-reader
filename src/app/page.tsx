@@ -59,6 +59,10 @@ function HomeContent() {
       await ctx.selectDirectory();
     } catch (error) {
       console.error('Failed to select directory:', error);
+      // Show user-friendly error message
+      if (error instanceof Error) {
+        alert(`Failed to open directory: ${error.message}\n\nPlease try again.`);
+      }
     }
   };
 
@@ -77,7 +81,8 @@ function HomeContent() {
   }
 
   // No directory selected - show welcome screen
-  if (!ctx.rootHandle) {
+  // Check for either no directory tree (Firefox/fallback) or no root handle (native API)
+  if (!ctx.directoryTree) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
         <div className="flex flex-col items-center gap-8 p-8 max-w-md text-center">

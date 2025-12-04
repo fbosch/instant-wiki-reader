@@ -3,6 +3,19 @@ import { get, set, del } from 'idb-keyval';
 import type { DirectoryNode, FileMeta } from '@/types';
 
 const DIRECTORY_HANDLE_KEY = 'wiki-directory-handle';
+const CACHED_FILES_KEY = 'wiki-cached-files';
+const CACHED_WIKI_NAME_KEY = 'wiki-cached-name';
+
+/**
+ * Serializable file data for caching
+ */
+interface CachedFile {
+  name: string;
+  path: string;
+  size: number;
+  lastModified: number;
+  content: ArrayBuffer;
+}
 
 /**
  * Check if File System Access API is supported.
@@ -124,6 +137,87 @@ export async function clearDirectoryHandle(): Promise<void> {
 }
 
 /**
+ * Save files to IndexedDB cache (for Firefox/browsers without File System Access API).
+ * Stores file metadata and content for offline access.
+ * 
+ * @param files - Array of files to cache
+ * @param wikiName - Name of the wiki for display
+ */
+export async function cacheFiles(files: File[], wikiName: string): Promise<void> {
+  try {
+    const cachedFiles: CachedFile[] = await Promise.all(
+      files.map(async (file) => {
+        const content = await file.arrayBuffer();
+        return {
+          name: file.name,
+          path: file.webkitRelativePath || file.name,
+          size: file.size,
+          lastModified: file.lastModified,
+          content,
+        };
+      })
+    );
+    
+    await set(CACHED_FILES_KEY, cachedFiles);
+    await set(CACHED_WIKI_NAME_KEY, wikiName);
+    console.log(`[cacheFiles] Cached ${cachedFiles.length} files`);
+  } catch (error) {
+    console.error('Failed to cache files:', error);
+    // Don't throw - caching is optional
+  }
+}
+
+/**
+ * Load cached files from IndexedDB (for Firefox/browsers without File System Access API).
+ * 
+ * @returns Object with files array and wiki name, or null if no cache exists
+ */
+export async function loadCachedFiles(): Promise<{ files: File[]; wikiName: string } | null> {
+  try {
+    const cachedFiles = await get<CachedFile[]>(CACHED_FILES_KEY);
+    const wikiName = await get<string>(CACHED_WIKI_NAME_KEY);
+    
+    if (!cachedFiles || !wikiName) {
+      return null;
+    }
+    
+    const files = cachedFiles.map((cached) => {
+      const file = new File([cached.content], cached.name, {
+        lastModified: cached.lastModified,
+      });
+      
+      // Add webkitRelativePath property
+      Object.defineProperty(file, 'webkitRelativePath', {
+        value: cached.path,
+        writable: false,
+        enumerable: true,
+        configurable: true,
+      });
+      
+      return file;
+    });
+    
+    console.log(`[loadCachedFiles] Loaded ${files.length} cached files`);
+    return { files, wikiName };
+  } catch (error) {
+    console.error('Failed to load cached files:', error);
+    return null;
+  }
+}
+
+/**
+ * Clear cached files from IndexedDB.
+ */
+export async function clearCachedFiles(): Promise<void> {
+  try {
+    await del(CACHED_FILES_KEY);
+    await del(CACHED_WIKI_NAME_KEY);
+  } catch (error) {
+    console.error('Failed to clear cached files:', error);
+  }
+}
+
+/**
  * Build a directory tree from a flat list of files.
  * Uses sorting for O(n log n) performance instead of nested lookups (O(n²)).
  * 
@@ -139,6 +233,10 @@ export function buildDirectoryTree(files: File[]): DirectoryNode {
     isExpanded: true,
   };
 
+  if (files.length === 0) {
+    return root;
+  }
+
   // Sort files by path for efficient tree building
   const sortedFiles = [...files].sort((a, b) => {
     const pathA = a.webkitRelativePath || a.name;
@@ -146,8 +244,36 @@ export function buildDirectoryTree(files: File[]): DirectoryNode {
     return pathA.localeCompare(pathB);
   });
 
+  // Detect if all paths share a common root directory (from browser-fs-access)
+  // If they do, we'll skip it to avoid showing the selected directory itself
+  let commonRootToSkip: string | null = null;
+  const firstPath = sortedFiles[0].webkitRelativePath || sortedFiles[0].name;
+  const firstParts = firstPath.split('/');
+  
+  if (firstParts.length > 1) {
+    // Check if all files share the same first path segment
+    const potentialRoot = firstParts[0];
+    const allShareRoot = sortedFiles.every((file) => {
+      const path = file.webkitRelativePath || file.name;
+      return path.startsWith(potentialRoot + '/') || path === potentialRoot;
+    });
+    
+    if (allShareRoot) {
+      commonRootToSkip = potentialRoot;
+    }
+  }
+
   for (const file of sortedFiles) {
-    const relativePath = file.webkitRelativePath || file.name;
+    let relativePath = file.webkitRelativePath || file.name;
+    
+    // Strip common root if detected
+    if (commonRootToSkip && relativePath.startsWith(commonRootToSkip + '/')) {
+      relativePath = relativePath.slice(commonRootToSkip.length + 1);
+    } else if (commonRootToSkip && relativePath === commonRootToSkip) {
+      // Skip the root directory itself if it appears as a file
+      continue;
+    }
+    
     const parts = relativePath.split('/');
     
     let currentNode = root;

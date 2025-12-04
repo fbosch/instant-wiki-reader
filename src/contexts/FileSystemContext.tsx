@@ -22,6 +22,9 @@ import {
   isFileSystemAccessSupported,
   getWikiNameFromGit,
   getAzureDevOpsContext,
+  cacheFiles,
+  loadCachedFiles,
+  clearCachedFiles,
 } from '@/lib/file-system';
 import { pickDirectory, verifyPermission, readDirectory } from '@/lib/fs-access';
 import { useWorkers } from '@/hooks/use-workers';
@@ -207,12 +210,26 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     async function checkSavedDirectory() {
       if (!isFileSystemAccessSupported()) {
-        dispatch({ type: 'SET_PERMISSION_STATE', payload: 'denied' });
+        // Firefox/Safari: try to load cached files
+        const cached = await loadCachedFiles();
+        
+        if (cached) {
+          console.log('[FileSystemContext] Loaded cached files for fallback browser');
+          setAllFiles(cached.files);
+          dispatch({ type: 'SET_ALL_FILES', payload: cached.files });
+          dispatch({ type: 'SET_WIKI_NAME', payload: cached.wikiName });
+          dispatch({ type: 'SET_PERMISSION_STATE', payload: 'granted' });
+          
+          const tree = await buildTreeWithWorker(cached.files);
+          dispatch({ type: 'SET_DIRECTORY_TREE', payload: tree });
+          dispatch({ type: 'SET_LAST_REFRESH', payload: Date.now() });
+        }
+        
         dispatch({ type: 'SET_IS_INITIALIZING', payload: false });
         return;
       }
 
-      // Add a small delay to avoid showing welcome screen flash
+      // Chrome/Edge: try to restore directory handle
       const startTime = Date.now();
       const savedHandle = await getSavedDirectoryHandle();
       
@@ -252,7 +269,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     }
 
     checkSavedDirectory();
-  }, [buildTreeWithWorker]);
+  }, [buildTreeWithWorker, getWikiName]);
 
   // Select a directory
   const selectDirectory = useCallback(async () => {
@@ -261,17 +278,20 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
 
       let files: File[];
       let handle: FileSystemDirectoryHandle | null = null;
+      let wikiNameValue: string | null = null;
 
       if (isFileSystemAccessSupported()) {
         // Use native API for handle persistence
         handle = await pickDirectory();
         if (!handle) {
+          dispatch({ type: 'SET_IS_SCANNING', payload: false });
           return;
         }
 
         const hasPermission = await verifyPermission(handle, 'read');
         if (!hasPermission) {
           dispatch({ type: 'SET_PERMISSION_STATE', payload: 'denied' });
+          dispatch({ type: 'SET_IS_SCANNING', payload: false });
           return;
         }
 
@@ -279,7 +299,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         dispatch({ type: 'SET_PERMISSION_STATE', payload: 'granted' });
         
         // Get and set wiki name
-        const wikiNameValue = await getWikiName(handle);
+        wikiNameValue = await getWikiName(handle);
         dispatch({ type: 'SET_WIKI_NAME', payload: wikiNameValue });
         
         // Save handle for future use
@@ -288,9 +308,25 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
         // Read all files
         files = await readDirectory(handle);
       } else {
-        // Fallback to browser-fs-access
+        // Fallback to browser-fs-access (Firefox, Safari, etc.)
         const result = await openDirectory();
         files = result.files;
+        
+        // No handle persistence in fallback mode
+        dispatch({ type: 'SET_PERMISSION_STATE', payload: 'granted' });
+        
+        // Extract wiki name from first file's path (directory name)
+        if (files.length > 0) {
+          const firstPath = files[0].webkitRelativePath || files[0].name;
+          const rootDirName = firstPath.split('/')[0];
+          wikiNameValue = rootDirName;
+          dispatch({ type: 'SET_WIKI_NAME', payload: rootDirName });
+        }
+        
+        // Cache files for next page load
+        if (wikiNameValue) {
+          await cacheFiles(files, wikiNameValue);
+        }
       }
 
       setAllFiles(files);
@@ -306,7 +342,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     } finally {
       dispatch({ type: 'SET_IS_SCANNING', payload: false });
     }
-  }, [buildTreeWithWorker]);
+  }, [buildTreeWithWorker, getWikiName]);
 
   // Load children of a directory node (for lazy loading)
   const loadNodeChildren = useCallback(async (node: DirectoryNode) => {
@@ -409,6 +445,7 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   // Clear directory
   const clearDirectory = useCallback(async () => {
     await clearDirectoryHandle();
+    await clearCachedFiles();
     dispatch({ type: 'CLEAR_ALL' });
     setAllFiles([]);
   }, []);
