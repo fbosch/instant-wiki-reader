@@ -83,6 +83,110 @@ function mapArray<T, U>(items: T[], mapper: (item: T) => U): U[] {
 }
 ```
 
+## State Management
+
+### Valtio for Global State
+- **Use Valtio** for all global state management (instead of React Context + useReducer)
+- **Create proxy stores** in `src/store/` directory
+- **Use `useSnapshot`** in components to read state reactively
+- **Mutate state directly** - Valtio tracks changes automatically
+- **Keep stores focused** - one store per domain (e.g., file-system-store.ts)
+
+```typescript
+// ✅ Good - Valtio store
+// src/store/file-system-store.ts
+import { proxy } from 'valtio';
+import type { DirectoryNode, FileContent } from '@/types';
+
+interface FileSystemStore {
+  directoryTree: DirectoryNode | null;
+  currentFile: FileContent | null;
+  expandedDirs: Set<string>;
+  isScanning: boolean;
+}
+
+export const fileSystemStore = proxy<FileSystemStore>({
+  directoryTree: null,
+  currentFile: null,
+  expandedDirs: new Set(),
+  isScanning: false,
+});
+
+// Actions
+export function setCurrentFile(file: FileContent) {
+  fileSystemStore.currentFile = file;
+}
+
+export function toggleExpandDir(path: string) {
+  if (fileSystemStore.expandedDirs.has(path)) {
+    fileSystemStore.expandedDirs.delete(path);
+  } else {
+    fileSystemStore.expandedDirs.add(path);
+  }
+}
+```
+
+```typescript
+// ✅ Good - Using in components
+import { useSnapshot } from 'valtio';
+import { fileSystemStore, setCurrentFile } from '@/store/file-system-store';
+
+function FileViewer() {
+  const { currentFile, isScanning } = useSnapshot(fileSystemStore);
+  
+  const handleOpenFile = async (file: FileContent) => {
+    setCurrentFile(file);
+  };
+  
+  return <div>{currentFile?.content}</div>;
+}
+```
+
+```typescript
+// ❌ Bad - React Context + useReducer
+const FileSystemContext = createContext<State | null>(null);
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case 'SET_FILE':
+      return { ...state, currentFile: action.payload };
+    // ...
+  }
+}
+
+function FileSystemProvider({ children }: Props) {
+  const [state, dispatch] = useReducer(reducer, initialState);
+  // ...
+}
+```
+
+### Why Valtio?
+- **Simpler than Redux/Context** - No boilerplate, no reducers, no actions
+- **Better performance** - Fine-grained reactivity, only re-renders what changed
+- **TypeScript-friendly** - Full type inference without manual typing
+- **Mutable updates** - Write natural code like `store.count++` instead of spreading
+- **DevTools support** - Works with Redux DevTools for debugging
+- **No provider hell** - Direct imports, no context wrapping needed
+
+### Valtio Best Practices
+- **Don't store non-serializable values** in the store (use refs or separate Maps)
+- **Use `derive` for computed values** instead of useMemo in components
+- **Use `subscribe` for side effects** outside of React
+- **Keep actions colocated** with store definitions
+- **Use `proxyWithHistory`** if you need undo/redo functionality
+
+```typescript
+// ✅ Good - Computed values with derive
+import { derive } from 'valtio/utils';
+
+export const derivedStore = derive({
+  markdownFiles: (get) => {
+    const tree = get(fileSystemStore).directoryTree;
+    return tree?.children?.filter(f => f.name.endsWith('.md')) || [];
+  },
+});
+```
+
 ## React Best Practices
 
 ### Component Structure
@@ -114,7 +218,112 @@ export default function Button(props: any) {
 - **Prefix custom hooks** with `use`
 - **Memoize expensive computations** with `useMemo`
 - **Memoize callbacks** with `useCallback` when passing to child components
-- **Avoid useEffect where possible** - prefer direct state updates in event handlers
+- **Avoid useEffect where possible** - [You Might Not Need an Effect](https://react.dev/learn/you-might-not-need-an-effect)
+
+#### When NOT to use useEffect
+- **Transforming data for rendering** - use normal variables or `useMemo`
+- **Handling user events** - use event handlers
+- **Resetting state when props change** - use a `key` prop to reset component
+- **Adjusting state when props change** - update state during render
+- **Sharing logic between event handlers** - extract to a function
+- **Sending POST requests** - use event handlers, not effects
+- **Chains of computations** - use event handlers or derived state
+- **Passing data to parent** - lift state up instead
+
+```typescript
+// ❌ Bad - Unnecessary useEffect for data transformation
+function TodoList({ todos, filter }) {
+  const [filteredTodos, setFilteredTodos] = useState([]);
+  
+  useEffect(() => {
+    setFilteredTodos(todos.filter(t => t.status === filter));
+  }, [todos, filter]);
+  
+  return <>{/* render filteredTodos */}</>;
+}
+
+// ✅ Good - Compute during render
+function TodoList({ todos, filter }) {
+  const filteredTodos = todos.filter(t => t.status === filter);
+  return <>{/* render filteredTodos */}</>;
+}
+
+// ❌ Bad - useEffect to update parent
+function Child({ onDataChange }) {
+  const [data, setData] = useState('');
+  
+  useEffect(() => {
+    onDataChange(data);
+  }, [data, onDataChange]);
+  
+  return <input value={data} onChange={e => setData(e.target.value)} />;
+}
+
+// ✅ Good - Call parent in event handler
+function Child({ onDataChange }) {
+  const [data, setData] = useState('');
+  
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    setData(newValue);
+    onDataChange(newValue); // Direct call
+  };
+  
+  return <input value={data} onChange={handleChange} />;
+}
+
+// ❌ Bad - useEffect to reset state on prop change
+function SearchResults({ query }) {
+  const [results, setResults] = useState([]);
+  
+  useEffect(() => {
+    setResults([]); // Reset when query changes
+  }, [query]);
+  
+  return <>{/* render */}</>;
+}
+
+// ✅ Good - Use key to reset component
+function SearchPage() {
+  return <SearchResults key={query} query={query} />;
+}
+```
+
+#### When TO use useEffect
+Use `useEffect` **only** for synchronizing with external systems:
+- **Fetching data** from APIs (when not using Server Components)
+- **Setting up subscriptions** (WebSocket, event listeners)
+- **Manipulating DOM** directly (animations, focus management)
+- **Analytics tracking** (page views, events)
+- **Browser APIs** (localStorage, matchMedia, etc.)
+
+**Important**: If you're syncing with external state (like a store), consider using `useSyncExternalStore` instead of `useEffect`.
+
+```typescript
+// ✅ Good - useSyncExternalStore for external state
+import { useSyncExternalStore } from 'react';
+
+function useExternalStore(store) {
+  return useSyncExternalStore(
+    store.subscribe,   // Subscribe to changes
+    store.getSnapshot, // Get current value
+    store.getServerSnapshot // Optional: for SSR
+  );
+}
+
+// ❌ Bad - useEffect for external state
+function useExternalStore(store) {
+  const [data, setData] = useState(store.getSnapshot());
+  
+  useEffect(() => {
+    const unsubscribe = store.subscribe(() => {
+      setData(store.getSnapshot());
+    });
+    return unsubscribe;
+  }, [store]);
+  
+  return data;
+}
 
 ```typescript
 // ✅ Good - Direct state update in handler

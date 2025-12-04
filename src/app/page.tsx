@@ -4,10 +4,14 @@ import { useFileSystem } from '@/contexts/FileSystemContext';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { TableOfContents } from '@/components/table-of-contents';
 import { FileTree } from '@/components/file-tree';
+import { CommandPalette } from '@/components/command-palette';
+import { FileNameSearch } from '@/components/file-name-search';
 import { FolderOpen, FileText } from 'lucide-react';
 import { useUrlState } from '@/hooks/use-url-state';
 import { getParentDirs, formatFileName, formatFilePath } from '@/lib/utils';
-import { useEffect, Suspense } from 'react';
+import { useEffect, Suspense, useState, useCallback } from 'react';
+import { useHotkeys } from 'react-hotkeys-hook';
+import type { DirectoryNode } from '@/types';
 
 /**
  * Main content component that uses URL state.
@@ -16,6 +20,9 @@ import { useEffect, Suspense } from 'react';
 function HomeContent() {
   const ctx = useFileSystem();
   const { updateUrl, getFileFromUrl, getExpandedFromUrl } = useUrlState();
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [filteredTree, setFilteredTree] = useState<DirectoryNode | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Set up URL update callback
   useEffect(() => {
@@ -53,6 +60,17 @@ function HomeContent() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.directoryTree]); // Only run when tree is loaded
+
+  // Keyboard shortcut for command palette (Cmd+Shift+F / Ctrl+Shift+F)
+  useHotkeys('mod+shift+f', (e) => {
+    e.preventDefault();
+    setIsCommandPaletteOpen(true);
+  }, { enableOnFormTags: true });
+
+  const handleFilterTree = useCallback((tree: DirectoryNode | null, query: string) => {
+    setFilteredTree(tree);
+    setSearchQuery(query);
+  }, []);
 
   const handleSelectDirectory = async () => {
     try {
@@ -114,10 +132,16 @@ function HomeContent() {
   // Main application view - directory loaded
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
+      {/* Command Palette */}
+      <CommandPalette 
+        isOpen={isCommandPaletteOpen} 
+        onClose={() => setIsCommandPaletteOpen(false)} 
+      />
+
       {/* Sidebar - File tree */}
       <aside className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col h-full">
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50 truncate pr-2">
               {ctx.wikiName || 'Directory'}
             </h2>
@@ -128,10 +152,22 @@ function HomeContent() {
               Change
             </button>
           </div>
+          
+          {/* Filename search bar */}
+          <FileNameSearch tree={ctx.directoryTree} onFilter={handleFilterTree} />
+          
+          {/* Hint for content search */}
+          <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 text-center">
+            Press <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded text-xs font-mono">⌘⇧F</kbd> for content search
+          </div>
         </div>
         
         <div className="flex-1 overflow-y-auto">
-          <FileTree />
+          <FileTree 
+            key={searchQuery || 'no-search'} 
+            tree={filteredTree || ctx.directoryTree} 
+            searchQuery={searchQuery} 
+          />
         </div>
       </aside>
 

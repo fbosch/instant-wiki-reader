@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useTreeData } from 'react-stately';
 import { useFocusRing } from '@react-aria/focus';
 import { mergeProps } from '@react-aria/utils';
@@ -18,6 +18,122 @@ interface FileTreeItemProps {
   level?: number;
   expandedKeys: Set<string>;
   onToggleExpand: (key: string) => void;
+  searchQuery?: string;
+}
+
+/**
+ * Splits text into segments that match or don't match the query words.
+ * Returns an array of {text: string, isMatch: boolean} objects.
+ * Supports space-separated words - highlights each word individually.
+ */
+function getHighlightSegments(text: string, query: string): Array<{ text: string; isMatch: boolean }> {
+  if (!query.trim()) {
+    return [{ text, isMatch: false }];
+  }
+  
+  const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+  const lowerText = text.toLowerCase();
+  
+  // Find all match positions for all words
+  const matches: Array<{ start: number; end: number }> = [];
+  
+  words.forEach(word => {
+    let index = lowerText.indexOf(word);
+    while (index !== -1) {
+      matches.push({ start: index, end: index + word.length });
+      index = lowerText.indexOf(word, index + 1);
+    }
+  });
+  
+  // Sort matches by start position
+  matches.sort((a, b) => a.start - b.start);
+  
+  // Merge overlapping matches
+  const merged: Array<{ start: number; end: number }> = [];
+  matches.forEach(match => {
+    if (merged.length === 0) {
+      merged.push(match);
+    } else {
+      const last = merged[merged.length - 1];
+      if (match.start <= last.end) {
+        // Overlapping - extend the last match
+        last.end = Math.max(last.end, match.end);
+      } else {
+        merged.push(match);
+      }
+    }
+  });
+  
+  // Build segments
+  const segments: Array<{ text: string; isMatch: boolean }> = [];
+  let lastIndex = 0;
+  
+  merged.forEach(match => {
+    // Add non-matching text before this match
+    if (match.start > lastIndex) {
+      segments.push({
+        text: text.substring(lastIndex, match.start),
+        isMatch: false,
+      });
+    }
+    
+    // Add the matching text
+    segments.push({
+      text: text.substring(match.start, match.end),
+      isMatch: true,
+    });
+    
+    lastIndex = match.end;
+  });
+  
+  // Add any remaining non-matching text
+  if (lastIndex < text.length) {
+    segments.push({
+      text: text.substring(lastIndex),
+      isMatch: false,
+    });
+  }
+  
+  return segments;
+}
+
+/**
+ * Component that renders text with highlighted matches
+ * Supports two highlight types:
+ * - filename: Yellow highlight for filename search matches
+ * - content: Blue highlight for content search matches
+ */
+function HighlightedText({ 
+  text, 
+  query, 
+  highlightType = 'filename' 
+}: { 
+  text: string; 
+  query: string; 
+  highlightType?: 'filename' | 'content';
+}) {
+  const segments = getHighlightSegments(text, query);
+  
+  const highlightClass = highlightType === 'filename'
+    ? 'bg-yellow-200 dark:bg-yellow-600/40 text-slate-900 dark:text-slate-50'
+    : 'bg-blue-200 dark:bg-blue-600/40 text-slate-900 dark:text-slate-50';
+  
+  return (
+    <>
+      {segments.map((segment, index) => 
+        segment.isMatch ? (
+          <mark 
+            key={index} 
+            className={`${highlightClass} px-0.5 rounded`}
+          >
+            {segment.text}
+          </mark>
+        ) : (
+          <span key={index}>{segment.text}</span>
+        )
+      )}
+    </>
+  );
 }
 
 function FileTreeItem({ 
@@ -26,14 +142,16 @@ function FileTreeItem({
   node, 
   level = 0,
   expandedKeys,
-  onToggleExpand
+  onToggleExpand,
+  searchQuery = '',
 }: FileTreeItemProps) {
   const { openFile, currentFile } = useFileSystem();
   const ref = React.useRef<HTMLDivElement>(null);
   const { focusProps } = useFocusRing();
 
   const isSelected = tree.selectedKeys?.has(node.key) ?? false;
-  const isExpanded = expandedKeys.has(node.key);
+  // Use item.isExpanded from filtered tree if set, otherwise check expandedKeys
+  const isExpanded = item.isExpanded ?? expandedKeys.has(node.key);
   const hasChildren = node.children && node.children.length > 0;
   const isCurrentFile = currentFile?.path === item.path;
 
@@ -88,7 +206,10 @@ function FileTreeItem({
           <Folder className={`w-4 h-4 flex-shrink-0 ${isCurrentFile ? 'text-white' : 'text-blue-500'}`} />
         )}
         <span className="text-sm truncate font-medium">
-          {item.type === 'file' ? formatFileName(item.name, true) : formatFileName(item.name)}
+          <HighlightedText 
+            text={item.type === 'file' ? formatFileName(item.name, true) : formatFileName(item.name)}
+            query={searchQuery}
+          />
         </span>
       </div>
       {hasChildren && isExpanded && (
@@ -103,6 +224,7 @@ function FileTreeItem({
               level={level + 1}
               expandedKeys={expandedKeys}
               onToggleExpand={onToggleExpand}
+              searchQuery={searchQuery}
             />
           ))}
         </ul>
@@ -111,21 +233,18 @@ function FileTreeItem({
   );
 }
 
-export function FileTree() {
+export function FileTree({ tree: treeOverride, searchQuery = '' }: { tree?: DirectoryNode | null; searchQuery?: string } = {}) {
   const { directoryTree, selectedNode, expandedDirs, setExpandedDirs } = useFileSystem();
+  
+  // Use override tree if provided, otherwise use context tree
+  const activeTree = treeOverride !== undefined ? treeOverride : directoryTree;
 
   const tree = useTreeData({
-    initialItems: directoryTree?.children || [],
+    initialItems: activeTree?.children || [],
     getKey: (item) => item.path,
     getChildren: (item) => item.children || [],
     initialSelectedKeys: selectedNode ? [selectedNode.path] : [],
   });
-
-  useEffect(() => {
-    if (selectedNode) {
-      tree.setSelectedKeys(new Set([selectedNode.path]));
-    }
-  }, [selectedNode, tree]);
 
   const handleToggleExpand = (key: string) => {
     const next = new Set(expandedDirs);
@@ -137,7 +256,7 @@ export function FileTree() {
     setExpandedDirs(next);
   };
 
-  if (!directoryTree?.children) {
+  if (!activeTree?.children) {
     return (
       <div className="p-4 text-slate-500 dark:text-slate-400 text-sm">
         No directory selected. Click &quot;Select Directory&quot; to get started.
@@ -156,6 +275,7 @@ export function FileTree() {
             node={node}
             expandedKeys={expandedDirs}
             onToggleExpand={handleToggleExpand}
+            searchQuery={searchQuery}
           />
         ))}
       </ul>
