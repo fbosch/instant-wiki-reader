@@ -1,9 +1,12 @@
 /**
  * Web Worker for markdown parsing and search operations.
  * Uses Comlink for seamless RPC-style communication with main thread.
+ * Uses Fuse.js for fuzzy search with better matching and scoring.
  */
 
 import { expose } from 'comlink';
+import Fuse from 'fuse.js';
+import type { IFuseOptions } from 'fuse.js';
 import type { SearchIndexEntry } from '@/types';
 
 /**
@@ -85,49 +88,56 @@ function buildSearchIndex(files: FileWithContent[]): SearchIndexEntry[] {
 }
 
 /**
- * Search through index entries.
+ * Search through index entries using Fuse.js for fuzzy matching.
  * 
  * @param index - Search index
  * @param query - Search query
  * @param mode - Search mode ('filename' or 'fulltext')
- * @returns Array of matching entries with scores
+ * @returns Array of matching entries with scores and match highlighting
  */
 function searchIndex(
   index: SearchIndexEntry[],
   query: string,
   mode: 'filename' | 'fulltext' = 'filename'
-): Array<{ entry: SearchIndexEntry; score: number }> {
-  const lowerQuery = query.toLowerCase();
-  const results: Array<{ entry: SearchIndexEntry; score: number }> = [];
-  
-  for (const entry of index) {
-    let score = 0;
-    
-    // Filename match
-    if (entry.title.toLowerCase().includes(lowerQuery)) {
-      score += 10;
-    }
-    
-    // Heading match
-    for (const heading of entry.headings) {
-      if (heading.toLowerCase().includes(lowerQuery)) {
-        score += 5;
-      }
-    }
-    
-    // Full-text search
-    if (mode === 'fulltext' && entry.content) {
-      const matches = (entry.content.toLowerCase().match(new RegExp(lowerQuery, 'g')) || []).length;
-      score += matches;
-    }
-    
-    if (score > 0) {
-      results.push({ entry, score });
-    }
+): Array<{ entry: SearchIndexEntry; score: number; matches?: any }> {
+  if (!query.trim()) {
+    return [];
   }
+
+  // Configure Fuse.js options based on search mode
+  const fuseOptions: IFuseOptions<SearchIndexEntry> = {
+    keys: mode === 'filename' 
+      ? [
+          { name: 'title', weight: 0.7 },       // Filename gets highest weight
+          { name: 'headings', weight: 0.3 },    // Headings get lower weight
+        ]
+      : [
+          { name: 'title', weight: 0.4 },       // Filename important but not dominant
+          { name: 'headings', weight: 0.3 },    // Headings get good weight
+          { name: 'content', weight: 0.3 },     // Content search in fulltext mode
+        ],
+    threshold: 0.4,              // 0 = perfect match, 1 = match anything
+    distance: 100,               // How far to search for a pattern match
+    minMatchCharLength: 2,       // Minimum match length
+    includeScore: true,          // Include match score
+    includeMatches: true,        // Include match positions for highlighting
+    ignoreLocation: true,        // Search anywhere in text (not just beginning)
+    useExtendedSearch: false,    // Don't use special operators
+    findAllMatches: true,        // Find all matches, not just first
+  };
+
+  // Create Fuse instance with the index
+  const fuse = new Fuse(index, fuseOptions);
   
-  // Sort by score descending
-  return results.sort((a, b) => b.score - a.score);
+  // Perform search
+  const results = fuse.search(query);
+  
+  // Transform results to match our expected format
+  return results.map((result) => ({
+    entry: result.item,
+    score: result.score !== undefined ? (1 - result.score) * 10 : 0, // Invert score (Fuse.js: lower is better)
+    matches: result.matches, // Include match information for highlighting
+  }));
 }
 
 // Worker API

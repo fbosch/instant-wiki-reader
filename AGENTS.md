@@ -182,6 +182,7 @@ const path = file.webkitRelativePath;
 ### Dependencies
 - **Keep dependencies updated**
 - **Use lock files**
+- **Use pnpm** for package management (not npm or yarn)
 
 ## Git Practices
 
