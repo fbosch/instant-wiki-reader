@@ -92,93 +92,60 @@ function HomeContent() {
     }
   }, [ctx.currentFile?.path]); // Only trigger on path change
 
-  // Handle hash scrolling and text fragment highlighting
+  // Handle scrolling to highlighted text or hash anchors
   useEffect(() => {
     if (!ctx.currentFile) return;
 
-    const hash = window.location.hash;
-    if (!hash) {
-      setHasScrolledToHash(false);
-      return;
-    }
-
     // Give the markdown renderer time to render the content
     const timeoutId = setTimeout(() => {
-      // Check if this is a text fragment (#:~:text=...)
-      const textFragmentMatch = hash.match(/#:~:text=(.+)/);
-      
-      if (textFragmentMatch) {
-        // Handle text fragment
-        try {
-          const searchText = decodeURIComponent(textFragmentMatch[1].replace(/%2D/g, '-'));
-          console.log('[HomeContent] Searching for text fragment:', searchText);
-          
-          // Find text in the document
-          const walker = document.createTreeWalker(
-            document.body,
-            NodeFilter.SHOW_TEXT,
-            null
-          );
-          
-          let node;
-          while ((node = walker.nextNode())) {
-            const text = node.textContent || '';
-            const index = text.toLowerCase().indexOf(searchText.toLowerCase());
-            
-            if (index !== -1 && node.parentElement) {
-              console.log('[HomeContent] Found text fragment, scrolling and highlighting');
-              
-              // Scroll to the element
-              node.parentElement.scrollIntoView({ 
-                behavior: 'smooth', 
-                block: 'center' 
-              });
-              
-              // Highlight the text temporarily
-              const range = document.createRange();
-              range.setStart(node, index);
-              range.setEnd(node, index + searchText.length);
-              
-              const selection = window.getSelection();
-              selection?.removeAllRanges();
-              selection?.addRange(range);
-              
-              // Clear selection after 2 seconds
-              setTimeout(() => {
-                selection?.removeAllRanges();
-              }, 2000);
-              
-              setHasScrolledToHash(true);
-              break;
-            }
-          }
-        } catch (err) {
-          console.error('[HomeContent] Error handling text fragment:', err);
-        }
-      } else {
-        // Handle regular hash (element ID)
-        const elementId = hash.slice(1); // Remove the # prefix
-        const element = document.getElementById(elementId);
+      // Priority 1: Scroll to highlighted text fragment if present
+      if (textFragment) {
+        console.log('[HomeContent] Looking for highlighted text fragment:', textFragment);
         
-        if (element) {
-          const isInitialScroll = !hasScrolledToHash;
-          console.log('[HomeContent] Scrolling to hash:', hash, isInitialScroll ? '(instant)' : '(smooth)');
-          
-          // Use instant scroll on initial load, smooth scroll on subsequent navigations
-          element.scrollIntoView({ 
-            behavior: isInitialScroll ? 'auto' : 'smooth', 
-            block: 'start' 
+        // Find the first <mark class="text-fragment-highlight"> element
+        const firstMark = document.querySelector('mark.text-fragment-highlight');
+        
+        if (firstMark) {
+          console.log('[HomeContent] Found first highlighted element, scrolling to it');
+          firstMark.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
           });
-          
           setHasScrolledToHash(true);
         } else {
-          console.warn('[HomeContent] Hash element not found:', hash);
+          console.warn('[HomeContent] Text fragment specified but no highlighted elements found');
+        }
+      } 
+      // Priority 2: Handle regular hash (element ID) if no text fragment
+      else {
+        const hash = window.location.hash;
+        if (hash) {
+          const elementId = hash.slice(1); // Remove the # prefix
+          const element = document.getElementById(elementId);
+          
+          if (element) {
+            const isInitialScroll = !hasScrolledToHash;
+            console.log('[HomeContent] Scrolling to hash:', hash, isInitialScroll ? '(instant)' : '(smooth)');
+            
+            // Use instant scroll on initial load, smooth scroll on subsequent navigations
+            element.scrollIntoView({ 
+              behavior: isInitialScroll ? 'auto' : 'smooth', 
+              block: 'start' 
+            });
+            
+            setHasScrolledToHash(true);
+          } else {
+            console.warn('[HomeContent] Hash element not found:', hash);
+          }
+        } else {
+          // No highlight or hash - reset scroll flag
+          setHasScrolledToHash(false);
         }
       }
-    }, 100);
+    }, 150); // Slightly longer delay to ensure marks are rendered
 
     return () => clearTimeout(timeoutId);
-  }, [ctx.currentFile, ctx.currentFile?.path, textFragment]); // Run when file or highlight text changes
+  }, [ctx.currentFile, ctx.currentFile?.path, textFragment, hasScrolledToHash]); // Run when file or highlight text changes
 
   // Keyboard shortcut for command palette (Cmd+Shift+F / Ctrl+Shift+F)
   useHotkeys('mod+shift+f', (e) => {
