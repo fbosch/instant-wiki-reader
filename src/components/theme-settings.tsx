@@ -31,24 +31,16 @@ export function ThemeSettings() {
             <Type className="w-4 h-4" />
           </MenuButton>
 
-          {/* Backdrop overlay for sidebar only */}
-          {open && (
-            <div 
-              className="absolute inset-0 bg-black/20 z-40 transition-opacity duration-100 pointer-events-none"
-              style={{ left: 0, width: '320px', top: 0, height: '100vh' }}
-              aria-hidden="true"
-            />
-          )}
-
           <MenuItems
-            anchor="bottom end"
-            className="w-80 rounded-lg shadow-xl focus:outline-none z-50 mt-2 origin-top-right transition duration-100 ease-out data-[closed]:scale-95 data-[closed]:opacity-0"
+            anchor="bottom start"
+            className="w-80 rounded-lg shadow-xl focus:outline-none z-50 origin-top-left transition duration-100 ease-out data-[closed]:scale-95 data-[closed]:opacity-0"
             style={{ 
               maxHeight: 'calc(100vh - 100px)', 
               overflowY: 'auto',
               backgroundColor: theme.bg,
               borderColor: theme.border,
               border: `1px solid ${theme.border}`,
+              marginTop: '8px',
             }}
           >
           {/* Header */}

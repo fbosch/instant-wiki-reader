@@ -239,99 +239,75 @@ function HomeContent() {
   // Check for either no directory tree (Firefox/fallback) or no root handle (native API)
   if (!ctx.directoryTree) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-8">
-        <div className="max-w-3xl w-full">
-          {/* Header */}
-          <div className="text-center mb-12">
-            <FolderOpen className="w-20 h-20 text-blue-600 dark:text-blue-500 mx-auto mb-6" />
-            <h1 className="text-5xl font-bold text-slate-900 dark:text-slate-50 mb-4">
-              Instant Wiki Reader
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900 p-8">
+        <div className="max-w-2xl w-full">
+          <div className="mb-8">
+            <h1 className="text-3xl font-semibold text-slate-900 dark:text-slate-50 mb-3">
+              Wiki Reader
             </h1>
-            <p className="text-xl text-slate-600 dark:text-slate-400">
-              Read your Azure DevOps wiki offline with lightning-fast search and navigation
+            <p className="text-base text-slate-600 dark:text-slate-400">
+              Browse and search markdown wikis locally in your browser.
             </p>
           </div>
 
-          {/* Step-by-step guide */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 mb-8">
-            <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-50 mb-6">
-              Quick Start Guide
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-6 mb-6">
+            <h2 className="text-lg font-medium text-slate-900 dark:text-slate-50 mb-4">
+              Getting Started
             </h2>
             
-            <div className="space-y-6">
-              {/* Step 1 */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-lg">
-                  1
-                </div>
+            <div className="space-y-4 mb-6">
+              <div className="flex gap-3">
+                <span className="text-slate-400 dark:text-slate-500 font-mono text-sm flex-shrink-0">1.</span>
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-2">
+                  <h3 className="text-sm font-medium text-slate-900 dark:text-slate-50 mb-1">
                     Clone your Azure DevOps wiki repository
                   </h3>
-                  <p className="text-slate-600 dark:text-slate-400 mb-3">
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                     In Azure DevOps, navigate to your wiki and clone it to your local machine using Git.
                   </p>
-                  <div className="bg-slate-100 dark:bg-slate-900 rounded-lg p-3 font-mono text-sm text-slate-700 dark:text-slate-300">
+                  <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded p-2 font-mono text-xs text-slate-700 dark:text-slate-300">
                     git clone https://dev.azure.com/your-org/your-project/_git/your-wiki.wiki
                   </div>
                 </div>
               </div>
 
-              {/* Step 2 */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-lg">
-                  2
-                </div>
+              <div className="flex gap-3">
+                <span className="text-slate-400 dark:text-slate-500 font-mono text-sm flex-shrink-0">2.</span>
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-2">
+                  <h3 className="text-sm font-medium text-slate-900 dark:text-slate-50 mb-1">
                     Select the wiki directory
                   </h3>
-                  <p className="text-slate-600 dark:text-slate-400">
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
                     Click the button below and choose the root folder of your cloned wiki repository.
                   </p>
                 </div>
               </div>
 
-              {/* Step 3 */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-lg">
-                  3
-                </div>
+              <div className="flex gap-3">
+                <span className="text-slate-400 dark:text-slate-500 font-mono text-sm flex-shrink-0">3.</span>
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-2">
-                    Enjoy instant offline access
+                  <h3 className="text-sm font-medium text-slate-900 dark:text-slate-50 mb-1">
+                    Start reading
                   </h3>
-                  <p className="text-slate-600 dark:text-slate-400">
-                    Browse files, search content instantly, and navigate with ease—all locally in your browser!
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    Browse files, search content instantly, and navigate with ease—all locally in your browser.
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* CTA Button */}
-            <div className="mt-8 pt-8 border-t border-slate-200 dark:border-slate-700">
-              <button
-                onClick={handleSelectDirectory}
-                className="w-full flex items-center justify-center gap-3 px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <FolderOpen className="w-6 h-6" />
-                Select Wiki Directory
-              </button>
-            </div>
+            <button
+              onClick={handleSelectDirectory}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors"
+            >
+              <FolderOpen className="w-4 h-4" />
+              Open Directory
+            </button>
           </div>
 
-          {/* Privacy notice */}
-          <div className="text-center space-y-2 text-sm text-slate-500 dark:text-slate-400">
-            <div className="flex items-center justify-center gap-6">
-              <div className="flex items-center gap-2">
-                <span className="text-green-600 dark:text-green-500">✓</span>
-                <span>100% local - your files never leave your computer</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-green-600 dark:text-green-500">✓</span>
-                <span>No server, no uploads, completely private</span>
-              </div>
-            </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400 space-y-1">
+            <p>All files are processed locally. Nothing is uploaded to any server.</p>
+            <p>Works with Azure DevOps wikis, GitHub wikis, or any markdown directory.</p>
           </div>
         </div>
       </div>
@@ -341,7 +317,9 @@ function HomeContent() {
   // Apply theme styles
   const theme = colorThemes[colorTheme];
   const contentStyle = {
-    fontFamily: fontFamily === 'serif' ? 'Georgia, serif' : 'system-ui, sans-serif',
+    fontFamily: fontFamily === 'serif' 
+      ? 'var(--font-lora), Georgia, serif' 
+      : 'var(--font-inter), system-ui, sans-serif',
     fontSize: `${fontSize}rem`,
     lineHeight: lineHeight,
     backgroundColor: theme.bg,
@@ -433,7 +411,14 @@ function HomeContent() {
               }}
             >
               <div className="mb-6">
-                <h1 className="text-3xl font-bold mb-2" style={{ color: theme.text }}>
+                <h1 
+                  className="text-3xl font-bold mb-2" 
+                  style={{ 
+                    color: theme.text, 
+                    fontSize: `${fontSize * 2.25}rem`,
+                    fontFamily: contentStyle.fontFamily,
+                  }}
+                >
                   {formatFileName(ctx.currentFile.path.split('/').pop() || '', true)}
                 </h1>
                 <p className="text-sm" style={{ color: theme.secondary }}>

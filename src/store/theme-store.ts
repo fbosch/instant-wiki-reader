@@ -17,9 +17,9 @@ interface ThemeState {
 function loadThemeFromStorage(): ThemeState {
   if (typeof window === 'undefined') {
     return {
-      fontFamily: 'sans',
+      fontFamily: 'serif',
       fontSize: 1.0,
-      lineHeight: 1.6,
+      lineHeight: 1.7,
       colorTheme: 'dark',
       contentWidth: 'wide',
       centerContent: true,
@@ -32,9 +32,9 @@ function loadThemeFromStorage(): ThemeState {
       const parsed = JSON.parse(stored);
       // Provide defaults for new properties if not present
       return {
-        fontFamily: parsed.fontFamily || 'sans',
+        fontFamily: parsed.fontFamily || 'serif',
         fontSize: parsed.fontSize || 1.0,
-        lineHeight: parsed.lineHeight || 1.6,
+        lineHeight: parsed.lineHeight || 1.7,
         colorTheme: parsed.colorTheme || 'dark',
         contentWidth: parsed.contentWidth || 'wide',
         centerContent: parsed.centerContent !== undefined ? parsed.centerContent : true,
@@ -45,9 +45,9 @@ function loadThemeFromStorage(): ThemeState {
   }
 
   return {
-    fontFamily: 'sans',
+    fontFamily: 'serif',
     fontSize: 1.0,
-    lineHeight: 1.6,
+    lineHeight: 1.7,
     colorTheme: 'dark',
     contentWidth: 'wide',
     centerContent: true,
