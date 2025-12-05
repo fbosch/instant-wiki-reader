@@ -288,6 +288,55 @@ const resolvedPath = resolveImagePath('../../img.png', currentFile.path);
 
 ## URL State Management (CRITICAL)
 
+### URL as Single Source of Truth
+- **URL is the ONLY source of truth** for navigation state (file path, search terms, highlights)
+- **NEVER duplicate URL state in useState/useReducer** - This causes sync issues and bugs
+- **Components should OBSERVE the URL** and react to changes, not manage state separately
+- **All navigation updates the URL** - Components read from URL, not from React state
+- **Expanded directories are NOT in URL** - They persist in sessionStorage via Valtio for better UX
+
+```typescript
+// ✅ GOOD - URL as single source of truth
+function Page() {
+  const { getFileFromUrl, updateUrl } = useUrlState();
+  const filePath = getFileFromUrl(); // Read from URL
+  
+  useEffect(() => {
+    if (filePath) {
+      loadFile(filePath); // React to URL changes
+    }
+  }, [filePath]);
+  
+  return <FileTree onSelect={(path) => updateUrl({ file: path })} />;
+}
+
+// ❌ BAD - Duplicating state in React
+function Page() {
+  const [currentFile, setCurrentFile] = useState(''); // NO! Duplicate state
+  const { updateUrl } = useUrlState();
+  
+  const handleSelect = (path: string) => {
+    setCurrentFile(path);  // Updates React state
+    updateUrl({ file: path }); // Updates URL
+    // Now have TWO sources of truth - will get out of sync!
+  };
+}
+```
+
+**Why this matters:**
+- **Prevents sync bugs** - No more "URL says X but component shows Y"
+- **Enables deep linking** - Users can bookmark/share any app state
+- **Simplifies code** - One source of truth, no sync logic needed
+- **Browser navigation works** - Back/forward buttons just work
+
+**Architecture pattern:**
+1. User action → `updateUrl({ file: 'new.md' })`
+2. URL updates via router.replace()
+3. `useUrlState` hook observes URL change
+4. Component re-renders with new URL state
+5. useEffect reacts to URL state change
+6. Component loads/displays new content
+
 ### Always Store State in URL Query Parameters
 - **NEVER rely on URL hash fragments** (`#...`) for application state
 - **URL hashes are NOT preserved** across page refreshes or browser sessions
@@ -295,7 +344,7 @@ const resolvedPath = resolveImagePath('../../img.png', currentFile.path);
 
 ```typescript
 // ✅ GOOD - State in query parameters (persists across refresh)
-const url = '?file=doc.md&highlight=search-term&expanded=dir1,dir2';
+const url = '?file=doc.md&highlight=search-term';
 
 // ❌ BAD - State in hash (lost on refresh)
 const url = '?file=doc.md#:~:text=search-term';
@@ -307,8 +356,9 @@ const url = '?file=doc.md#:~:text=search-term';
 - **Text fragments** (`#:~:text=`) are intentionally not preserved for privacy reasons
 
 **When to use each:**
-- **Query params**: File paths, search terms, filters, highlights, expanded state
+- **Query params**: File paths, search terms, filters, highlights (persistent state)
 - **Hash**: Only for in-page anchors (heading links) - never for application state
+- **SessionStorage**: UI preferences like expanded directories (not shareable, but persists in session)
 
 ```typescript
 // ✅ GOOD - Persistent highlight with query param
@@ -323,13 +373,24 @@ window.location.hash = '#:~:text=search%20term';
 - **Use `useQueryStates`** for all URL state management
 - **Define parsers** for each parameter type
 - **Use `parseAsString`, `parseAsArrayOf`** for typed parsing
+- **Wrap page in Suspense** - Required by Next.js for useSearchParams
 
 ```typescript
+// In your custom hook
 const [state, setState] = useQueryStates({
   file: parseAsString.withDefault(''),
   highlight: parseAsString.withDefault(''),
-  expanded: parseAsArrayOf(parseAsString, ',').withDefault([]),
+  // Note: expanded dirs are NOT in URL - they persist in sessionStorage
 });
+
+// In your page component
+export default function Page() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <PageContent />
+    </Suspense>
+  );
+}
 ```
 
 ## When in Doubt
@@ -342,6 +403,7 @@ const [state, setState] = useQueryStates({
 6. **Test across multiple browsers** for File System APIs
 7. **COMPLETE YOUR EDITS** - Never leave code half-finished
 8. **NO PATH TRANSFORMATIONS** - Use paths exactly as-is
+9. **URL IS SINGLE SOURCE OF TRUTH** - Never duplicate URL state in React state
 
 ---
 

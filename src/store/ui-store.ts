@@ -125,6 +125,24 @@ export function setExpandedDirs(dirs: Set<string>) {
   wikiStates.get(currentWiki)!.expandedDirs = new Set(dirs);
 }
 
+export function addExpandedDirs(dirs: Set<string> | string[]) {
+  const { currentWiki, wikiStates } = uiStore;
+  if (!currentWiki) return;
+  
+  if (!wikiStates.has(currentWiki)) {
+    wikiStates.set(currentWiki, loadWikiState(currentWiki));
+  }
+  
+  const state = wikiStates.get(currentWiki)!;
+  const dirsArray = Array.isArray(dirs) ? dirs : Array.from(dirs);
+  
+  // Merge with existing expanded dirs
+  const newExpandedDirs = new Set([...state.expandedDirs, ...dirsArray]);
+  state.expandedDirs = newExpandedDirs;
+  
+  console.log('[addExpandedDirs] Added dirs:', dirsArray, 'Total expanded:', Array.from(newExpandedDirs));
+}
+
 export function clearExpandedDirs() {
   const { currentWiki, wikiStates } = uiStore;
   if (!currentWiki) return;

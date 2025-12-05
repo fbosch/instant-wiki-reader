@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter, Lora, JetBrains_Mono } from 'next/font/google';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { FileSystemProvider } from '@/contexts/FileSystemContext';
+import { Suspense } from 'react';
 import './globals.css';
 
 // Inter - Modern, highly readable sans-serif
@@ -47,9 +48,15 @@ export default function RootLayout({
         className={`${inter.variable} ${lora.variable} ${jetbrainsMono.variable} antialiased`}
       >
         <NuqsAdapter>
-          <FileSystemProvider>
-            {children}
-          </FileSystemProvider>
+          <Suspense fallback={
+            <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
+              <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          }>
+            <FileSystemProvider>
+              {children}
+            </FileSystemProvider>
+          </Suspense>
         </NuqsAdapter>
       </body>
     </html>

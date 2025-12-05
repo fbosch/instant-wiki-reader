@@ -1,7 +1,10 @@
 'use client';
 
+// Force dynamic rendering to prevent prerendering issues with useSearchParams
+export const dynamic = 'force-dynamic';
+
 import { useFileSystem } from '@/contexts/FileSystemContext';
-import { setCurrentWiki, setExpandedDirs as setExpandedDirsValtio } from '@/store/ui-store';
+import { setCurrentWiki, addExpandedDirs } from '@/store/ui-store';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { TableOfContents } from '@/components/table-of-contents';
 import { FileTree } from '@/components/file-tree';
@@ -38,7 +41,7 @@ function getServerHash() {
  */
 function HomeContent() {
   const ctx = useFileSystem();
-  const { updateUrl, getFileFromUrl, getExpandedFromUrl, getHighlightFromUrl } = useUrlState();
+  const { updateUrl, getFileFromUrl, getHighlightFromUrl } = useUrlState();
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [filteredTree, setFilteredTree] = useState<DirectoryNode | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -71,20 +74,17 @@ function HomeContent() {
     }
 
     const filePath = getFileFromUrl();
-    const expandedDirs = getExpandedFromUrl();
 
-    console.log('[HomeContent] URL state:', { filePath, expandedDirs: Array.from(expandedDirs) });
+    console.log('[HomeContent] URL state:', { filePath });
 
-    // Update expanded directories
+    // Auto-expand parent directories when loading a file from URL
     if (filePath) {
       const parentDirs = getParentDirs(filePath);
-      const dirsToExpand = new Set([...expandedDirs, ...parentDirs]);
       
-      if (dirsToExpand.size > 0) {
-        setExpandedDirsValtio(dirsToExpand);
+      if (parentDirs.length > 0) {
+        // Add parent dirs to existing expanded dirs (don't replace)
+        addExpandedDirs(parentDirs);
       }
-    } else if (expandedDirs.size > 0) {
-      setExpandedDirsValtio(expandedDirs);
     }
 
     // Load file content if path changed
@@ -99,7 +99,7 @@ function HomeContent() {
           setIsLoadingFromUrl(false);
         });
     }
-  }, [ctx.directoryTree, ctx.loadFile, getFileFromUrl, getExpandedFromUrl]); // React to URL changes
+  }, [ctx.directoryTree, ctx.loadFile, getFileFromUrl]); // React to URL changes
   // Handle hash scrolling and text fragment highlighting
   useEffect(() => {
     if (!ctx.currentFile) return;

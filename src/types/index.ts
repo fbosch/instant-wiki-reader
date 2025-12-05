@@ -68,4 +68,3 @@ export interface FileSystemActions {
   refresh: () => Promise<void>;
   clearDirectory: () => void;
 }
-}

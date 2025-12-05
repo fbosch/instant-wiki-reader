@@ -195,9 +195,10 @@ function FileTreeItem({
       openFile(item.path);
       tree.setSelectedKeys(new Set([node.key]));
     } else {
-      // For directories, toggle expansion and open index file if it exists
+      // For directories, toggle expansion (persists in sessionStorage via Valtio)
       console.log('[FileTreeItem] Toggling directory:', node.key);
       toggleExpandDir(node.key);
+      
       if (item.indexFile) {
         openFile(item.indexFile);
       }

@@ -52,20 +52,21 @@ function getServerSnapshot(): null {
  * Custom parsers for nuqs
  */
 const fileParser = parseAsString.withDefault('');
-const expandedParser = parseAsArrayOf(parseAsString, ',').withDefault([]);
 
 /**
  * Custom hook for managing application state in URL.
  * Uses nuqs for query params, useSyncExternalStore for hash.
+ * 
+ * Note: Expanded directories are NOT stored in URL - they persist in sessionStorage
+ * via Valtio. Only the file path is in the URL, and parent dirs are auto-expanded.
  */
 export function useUrlState() {
   const router = useRouter();
   
-  // Use nuqs for query parameters
+  // Use nuqs for query parameters (only file, not expanded)
   const [state, setState] = useQueryStates(
     {
       file: fileParser,
-      expanded: expandedParser,
     },
     {
       history: 'replace',
@@ -82,7 +83,6 @@ export function useUrlState() {
 
   const updateUrl = useCallback(async (updates: { 
     file?: string | null; 
-    expanded?: Set<string> | null;
     textFragment?: string | null;
   }) => {
     console.log('[useUrlState] updateUrl called with:', updates);
@@ -101,14 +101,6 @@ export function useUrlState() {
         else params.delete('file');
       }
       
-      if (updates.expanded !== undefined) {
-        if (updates.expanded && updates.expanded.size > 0) {
-          params.set('expanded', Array.from(updates.expanded).join(','));
-        } else {
-          params.delete('expanded');
-        }
-      }
-      
       const queryString = params.toString();
       const newPath = `${window.location.pathname}${queryString ? '?' + queryString : ''}${hash}`;
       
@@ -119,16 +111,10 @@ export function useUrlState() {
     }
     
     // No text fragment - use nuqs normally
-    const newState: { file?: string | null; expanded?: string[] | null } = {};
+    const newState: { file?: string | null } = {};
     
     if (updates.file !== undefined) {
       newState.file = updates.file || null;
-    }
-    
-    if (updates.expanded !== undefined) {
-      newState.expanded = updates.expanded && updates.expanded.size > 0
-        ? Array.from(updates.expanded)
-        : null;
     }
     
     await setState(newState);
@@ -146,10 +132,6 @@ export function useUrlState() {
     return decodeFilePath(rawFile);
   }, [state.file]);
 
-  const getExpandedFromUrl = useCallback(() => {
-    return new Set(state.expanded);
-  }, [state.expanded]);
-
   const getHighlightFromUrl = useCallback(() => {
     return textFragment;
   }, [textFragment]);
@@ -157,7 +139,6 @@ export function useUrlState() {
   return {
     updateUrl,
     getFileFromUrl,
-    getExpandedFromUrl,
     getHighlightFromUrl,
   };
 }
