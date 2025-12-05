@@ -704,18 +704,30 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   let processedContent = preprocessMarkdown(content, azureDevOpsBaseUrl);
   
   // Apply text fragment highlighting by wrapping matches with <mark> tags
+  // textFragment can be either:
+  // - A single term: "error"
+  // - Multiple terms separated by |: "error|handling|async"
   if (textFragment) {
     console.log('[MarkdownRenderer] Applying text fragment highlighting for:', textFragment);
     
-    // Escape special regex characters
-    const escapedFragment = textFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(${escapedFragment})`, 'gi');
+    // Check if textFragment contains multiple terms (separated by |)
+    const terms = textFragment.split('|').map(t => t.trim()).filter(Boolean);
+    console.log('[MarkdownRenderer] Highlighting terms:', terms);
+    
+    // Build regex that matches any of the terms
+    // Escape special regex characters for each term, but preserve | as OR operator
+    const escapedTerms = terms.map(term => 
+      term.replace(/[.*+?^${}()[\]\\]/g, '\\$&')
+    );
+    const pattern = escapedTerms.join('|');
+    const regex = new RegExp(`(${pattern})`, 'gi');
     
     // Wrap matches with mark tags
     // Use a placeholder to avoid double-wrapping if rehype plugins run
     processedContent = processedContent.replace(regex, '<mark class="text-fragment-highlight">$1</mark>');
     
-    console.log('[MarkdownRenderer] Highlighted', (processedContent.match(regex) || []).length, 'occurrences');
+    const matchCount = (processedContent.match(regex) || []).length;
+    console.log(`[MarkdownRenderer] Highlighted ${matchCount} occurrences across ${terms.length} terms`);
   }
   
   // Escape custom/unknown HTML tags that React doesn't recognize

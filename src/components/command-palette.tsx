@@ -154,37 +154,17 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       return;
     }
     
-    // Extract first matched text from result for text fragment navigation
-    let textFragment: string | null = null;
-    const firstMatch = Object.values(result.match)[0]?.[0];
-    console.log('[CommandPalette] First match snippet:', firstMatch);
+    // Use ALL search terms for multi-word highlighting
+    // Join terms with | (pipe) to create a regex pattern that matches any term
+    const textFragment = result.terms && result.terms.length > 0
+      ? result.terms.join('|')
+      : null;
     
-    if (firstMatch) {
-      // Extract text from <mark>text</mark> pattern
-      const markMatch = firstMatch.match(/<mark>(.*?)<\/mark>/);
-      console.log('[CommandPalette] Mark match:', markMatch);
-      if (markMatch && markMatch[1]) {
-        // Decode HTML entities
-        textFragment = markMatch[1]
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"')
-          .replace(/&#039;/g, "'")
-          .replace(/&amp;/g, '&');
-        
-        console.log('[CommandPalette] Extracted text fragment:', textFragment);
-        console.log('[CommandPalette] Text fragment type:', typeof textFragment, 'length:', textFragment?.length);
-      } else {
-        console.log('[CommandPalette] No mark match found in snippet');
-      }
-    } else {
-      console.log('[CommandPalette] No firstMatch found in result.match');
-    }
+    console.log('[CommandPalette] Search terms:', result.terms);
+    console.log('[CommandPalette] Text fragment for highlighting:', textFragment);
     
-    console.log('[CommandPalette] About to call updateUrl with:', { file: result.path, textFragment });
-    
-    // Update URL with file path and text fragment
-    // The page's URL restoration logic will handle opening the file
+    // Update URL with file path and all search terms for highlighting
+    // The markdown renderer will highlight all matching terms
     updateUrl({ 
       file: result.path,
       textFragment 
