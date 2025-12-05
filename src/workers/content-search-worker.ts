@@ -82,6 +82,8 @@ class ContentSearchWorker {
   private isIndexing = false;
   private indexedFileCount = 0;
   private initPromise: Promise<void> | null = null;
+  // In-memory cache of file contents for fast searching (avoids repeated IndexedDB reads)
+  private contentCache = new Map<string, string>();
 
   constructor() {
     // Auto-initialize when worker is created
@@ -174,6 +176,7 @@ class ContentSearchWorker {
   /**
    * Build search index from files in IndexedDB
    * Only indexes title and headings (not full content) for speed
+   * Also populates in-memory content cache for fast searching
    */
   async buildIndex(): Promise<{ success: boolean; fileCount: number }> {
     if (this.isIndexing) {
@@ -198,9 +201,16 @@ class ContentSearchWorker {
       console.log('[ContentSearchWorker] Sample file paths:', allFiles.slice(0, 3).map(f => f.path));
       console.log('[ContentSearchWorker] Sample content types:', allFiles.slice(0, 3).map(f => typeof f.content));
 
-      // Prepare documents for Fuse.js - DON'T index full content (too slow)
+      // Clear and rebuild content cache
+      this.contentCache.clear();
+      
+      // Prepare documents for Fuse.js AND populate content cache in single pass
       const documents: SearchDocument[] = allFiles.map((file) => {
         const contentStr = getContentAsString(file.content);
+        
+        // Cache content for fast regex searching (avoids repeated IndexedDB reads)
+        this.contentCache.set(file.path, contentStr);
+        
         return {
           id: file.path,
           path: file.path,
@@ -209,6 +219,8 @@ class ContentSearchWorker {
           headings: this.extractHeadings(contentStr),
         };
       });
+
+      console.log(`[ContentSearchWorker] Cached ${this.contentCache.size} file contents in memory`);
 
       // Initialize Fuse.js with documents - optimized for speed
       const fuseOptions: IFuseOptions<SearchDocument> = {
@@ -256,21 +268,21 @@ class ContentSearchWorker {
   /**
    * Extract snippet context around search terms
    * Finds ALL matches and highlights them
+   * Uses in-memory cache instead of IndexedDB for speed
    */
-  private async extractSnippets(
+  private extractSnippets(
     path: string,
     terms: string[],
     maxSnippets: number = 5
-  ): Promise<{ [field: string]: string[] }> {
+  ): { [field: string]: string[] } {
     try {
-      const db = await this.getDB();
-      const cached = await db.get('contents', path);
+      // Use cached content (much faster than IndexedDB lookup)
+      const content = this.contentCache.get(path);
       
-      if (!cached || !cached.content) {
+      if (!content) {
         return {};
       }
 
-      const content = getContentAsString(cached.content);
       const snippets: string[] = [];
 
       // Create regex from search terms to find ALL matches
@@ -318,9 +330,9 @@ class ContentSearchWorker {
 
   /**
    * Search through indexed content using hybrid approach:
-   * 1. Fuse.js for fuzzy title/heading search (fast)
-   * 2. Regex for full-text content search (accurate)
-   * Extracts snippets on-demand from IndexedDB with match positions
+   * 1. Fuse.js for fuzzy title/heading search (fast, limited to 20 results)
+   * 2. Regex for full-text content search (accurate, in-memory cache, limited to 20)
+   * Returns top 20 results with snippets extracted synchronously from cache
    */
   async search(query: string): Promise<SearchResult[]> {
     // Wait for auto-init to complete
@@ -332,6 +344,7 @@ class ContentSearchWorker {
     console.log(`[ContentSearchWorker] search() called with query: "${query}"`);
     console.log(`[ContentSearchWorker] searchEngine initialized: ${!!this.searchEngine}`);
     console.log(`[ContentSearchWorker] indexedFileCount: ${this.indexedFileCount}`);
+    console.log(`[ContentSearchWorker] contentCache size: ${this.contentCache.size}`);
     
     if (!this.searchEngine) {
       console.warn('[ContentSearchWorker] Search engine not initialized - call buildIndex() first');
@@ -348,14 +361,15 @@ class ContentSearchWorker {
       const startTime = performance.now();
       
       // Step 1: Fuzzy search on title/headings with Fuse.js (fast)
-      const fuseResults = this.searchEngine.search(query);
+      // Use Fuse's built-in limit option for efficiency (stops searching after 20 matches)
+      const fuseResults = this.searchEngine.search(query, { limit: 20 });
       console.log(`[ContentSearchWorker] Fuse.js found ${fuseResults.length} title/heading matches in ${(performance.now() - startTime).toFixed(2)}ms`);
 
-      // Step 2: Also search content with regex (accurate + fast for exact matches)
-      const contentMatches = await this.searchContentByRegex(query);
+      // Step 2: Search content with regex using in-memory cache (fast, limited to 20)
+      const contentMatches = this.searchContentByRegex(query);
       console.log(`[ContentSearchWorker] Regex found ${contentMatches.size} content matches in ${(performance.now() - startTime).toFixed(2)}ms total`);
 
-      // Combine results: Fuse results + content matches
+      // Combine results: Fuse results + content matches (limit to 20 total)
       const combinedPaths = new Set([
         ...fuseResults.map(r => r.item.path),
         ...contentMatches.keys()
@@ -371,29 +385,29 @@ class ContentSearchWorker {
       // Extract search terms from query for snippet highlighting
       const searchTerms = query.trim().toLowerCase().split(/\s+/);
 
-      // Build results with scores and snippets
+      // Build results with scores (limit to top 20)
       const results: SearchResult[] = [];
       
-      for (const path of Array.from(combinedPaths).slice(0, 50)) {
+      for (const path of Array.from(combinedPaths).slice(0, 20)) {
         const fuseResult = fuseResults.find(r => r.item.path === path);
         const hasContentMatch = contentMatches.has(path);
         
         // Calculate combined score
-        // Content matches get HIGHEST score (10-8), title/heading matches get lower score (0-6)
+        // Content matches get HIGHEST score (10-9), title/heading matches get lower score (0-6)
         let score = 0;
         if (hasContentMatch && fuseResult) {
           score = 10; // Perfect - matches both title/heading AND content
         } else if (hasContentMatch) {
-          score = 9; // Excellent - matches content only (boosted from 8)
+          score = 9; // Excellent - matches content only
         } else if (fuseResult) {
           // Good - matches title/heading only (use Fuse score)
           score = fuseResult.score !== undefined ? (1 - fuseResult.score) * 6 : 5;
         }
 
         // Only extract snippets for files with content matches
-        // Title/heading-only matches don't need snippets
+        // extractSnippets is now synchronous (uses cache), no await needed
         const snippets = hasContentMatch 
-          ? await this.extractSnippets(path, searchTerms)
+          ? this.extractSnippets(path, searchTerms)
           : {};
         
         results.push({
@@ -408,24 +422,27 @@ class ContentSearchWorker {
       // Sort by score descending (content matches will be at top: 10, 9, then title/heading: 0-6)
       results.sort((a, b) => b.score - a.score);
 
-      console.log(`[ContentSearchWorker] Returning ${results.length} results in ${(performance.now() - startTime).toFixed(2)}ms`);
+      // Take only top 20 after sorting
+      const topResults = results.slice(0, 20);
+
+      console.log(`[ContentSearchWorker] Returning ${topResults.length} results in ${(performance.now() - startTime).toFixed(2)}ms`);
       
       // Log score distribution for debugging
-      if (results.length > 0) {
+      if (topResults.length > 0) {
         const scoreBreakdown = {
-          contentAndTitle: results.filter(r => r.score === 10).length,
-          contentOnly: results.filter(r => r.score === 9).length,
-          titleOnly: results.filter(r => r.score < 9).length,
+          contentAndTitle: topResults.filter(r => r.score === 10).length,
+          contentOnly: topResults.filter(r => r.score === 9).length,
+          titleOnly: topResults.filter(r => r.score < 9).length,
         };
         console.log('[ContentSearchWorker] Score distribution:', scoreBreakdown);
-        console.log('[ContentSearchWorker] Top 3 results:', results.slice(0, 3).map(r => ({
+        console.log('[ContentSearchWorker] Top 3 results:', topResults.slice(0, 3).map(r => ({
           path: r.path,
           score: r.score,
           hasSnippets: Object.keys(r.match).length > 0,
         })));
       }
 
-      return results;
+      return topResults;
     } catch (error) {
       console.error('[ContentSearchWorker] Search error:', error);
       return [];
@@ -433,16 +450,13 @@ class ContentSearchWorker {
   }
 
   /**
-   * Search content using fast regex matching
-   * Returns Set of paths that match
+   * Search content using fast regex matching with in-memory cache
+   * Returns Set of paths that match (limited to top 20 for speed)
    */
-  private async searchContentByRegex(query: string): Promise<Set<string>> {
+  private searchContentByRegex(query: string): Set<string> {
     const matches = new Set<string>();
     
     try {
-      const db = await this.getDB();
-      const allFiles = await db.getAll('contents');
-      
       // Create regex from query (case-insensitive)
       const searchTerms = query.trim().toLowerCase().split(/\s+/);
       const regex = new RegExp(
@@ -450,13 +464,19 @@ class ContentSearchWorker {
         'gi'
       );
       
-      // Search each file's content
-      for (const file of allFiles) {
-        const content = getContentAsString(file.content);
+      // Search cached content (much faster than IndexedDB)
+      for (const [path, content] of this.contentCache.entries()) {
         regex.lastIndex = 0; // Reset regex
         
         if (regex.test(content)) {
-          matches.add(file.path);
+          matches.add(path);
+          
+          // Early termination: stop after finding 20 content matches
+          // (We only show top 20 results anyway)
+          if (matches.size >= 20) {
+            console.log('[ContentSearchWorker] Early termination: found 20 content matches');
+            break;
+          }
         }
       }
     } catch (error) {
@@ -483,12 +503,13 @@ class ContentSearchWorker {
   }
 
   /**
-   * Clear the search index
+   * Clear the search index and content cache
    */
   async clearIndex(): Promise<void> {
     this.searchEngine = null;
     this.indexedFileCount = 0;
-    console.log('[ContentSearchWorker] Index cleared');
+    this.contentCache.clear();
+    console.log('[ContentSearchWorker] Index and cache cleared');
   }
 }
 
