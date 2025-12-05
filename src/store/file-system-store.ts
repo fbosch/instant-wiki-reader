@@ -185,6 +185,13 @@ export function setAllFiles(files: File[]) {
 
 export function setWikiName(name: string | null) {
   fileSystemStore.wikiName = name;
+  
+  // Also set current wiki in UI store to avoid needing a useEffect
+  // This keeps a single source of truth for the wiki name
+  if (name) {
+    const { setCurrentWiki } = require('@/store/ui-store');
+    setCurrentWiki(name);
+  }
 }
 
 export function setAzureDevOpsContext(context: AzureDevOpsContext | null) {

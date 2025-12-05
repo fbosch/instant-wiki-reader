@@ -4,7 +4,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useFileSystem } from '@/contexts/FileSystemContext';
-import { setCurrentWiki, addExpandedDirs } from '@/store/ui-store';
+import { addExpandedDirs } from '@/store/ui-store';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { TableOfContents } from '@/components/table-of-contents';
 import { FileTree } from '@/components/file-tree';
@@ -57,13 +57,6 @@ function HomeContent() {
   
   // Get theme settings
   const { fontFamily, fontSize, lineHeight, colorTheme, contentWidth, centerContent } = useSnapshot(themeStore);
-
-  // Set current wiki in Valtio store when directory changes
-  useEffect(() => {
-    if (ctx.wikiName) {
-      setCurrentWiki(ctx.wikiName);
-    }
-  }, [ctx.wikiName]);
 
   // Load file from URL when URL changes
   useEffect(() => {
