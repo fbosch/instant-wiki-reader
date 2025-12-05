@@ -775,6 +775,33 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   // Preprocess content to fix common markdown issues and add Azure DevOps links
   let processedContent = preprocessMarkdown(content, azureDevOpsBaseUrl);
   
+  // Escape custom/unknown HTML tags that React doesn't recognize
+  // Convert <customtag> to &lt;customtag&gt; for any tag that's not a standard HTML tag
+  // Standard HTML tags that React/rehype-raw handles
+  const knownHtmlTags = new Set([
+    'a', 'abbr', 'address', 'area', 'article', 'aside', 'audio', 'b', 'base', 'bdi', 'bdo',
+    'blockquote', 'body', 'br', 'button', 'canvas', 'caption', 'cite', 'code', 'col', 'colgroup',
+    'data', 'datalist', 'dd', 'del', 'details', 'dfn', 'dialog', 'div', 'dl', 'dt', 'em', 'embed',
+    'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'head', 'header', 'hgroup', 'hr', 'html', 'i', 'iframe', 'img', 'input', 'ins', 'kbd', 'label',
+    'legend', 'li', 'link', 'main', 'map', 'mark', 'meta', 'meter', 'nav', 'noscript', 'object',
+    'ol', 'optgroup', 'option', 'output', 'p', 'param', 'picture', 'pre', 'progress', 'q', 'rp',
+    'rt', 'ruby', 's', 'samp', 'script', 'section', 'select', 'small', 'source', 'span', 'strong',
+    'style', 'sub', 'summary', 'sup', 'svg', 'table', 'tbody', 'td', 'template', 'textarea', 'tfoot',
+    'th', 'thead', 'time', 'title', 'tr', 'track', 'u', 'ul', 'var', 'video', 'wbr'
+  ]);
+  
+  // Escape unknown HTML tags
+  processedContent = processedContent.replace(/<(\/?)([\w-]+)([^>]*)>/g, (match, slash, tagName, attrs) => {
+    // If it's a known HTML tag or already escaped, leave it as-is
+    if (knownHtmlTags.has(tagName.toLowerCase()) || match.startsWith('&lt;')) {
+      return match;
+    }
+    // Otherwise, escape it
+    console.log('[MarkdownRenderer] Escaping unknown HTML tag:', tagName);
+    return `&lt;${slash}${tagName}${attrs}&gt;`;
+  });
+  
   // Apply text fragment highlighting if present
   if (textFragment) {
     console.log("[MarkdownRenderer] Applying text fragment highlight:", textFragment);
@@ -809,7 +836,10 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
             },
           ],
         ]}
-        rehypePlugins={[rehypeRaw, rehypeHighlight]}
+        rehypePlugins={[
+          rehypeRaw,
+          rehypeHighlight,
+        ]}
         components={{
           // Custom heading rendering with anchor IDs for table of contents
           // Using em units so headings scale with base font size
