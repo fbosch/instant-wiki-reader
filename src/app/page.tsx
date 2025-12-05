@@ -93,6 +93,22 @@ function HomeContent() {
         });
     }
   }, [ctx.directoryTree, ctx.loadFile, getFileFromUrl]); // React to URL changes
+  // Reset scroll position when file changes (unless hash is present)
+  useEffect(() => {
+    if (!ctx.currentFile) return;
+
+    // Only reset if there's no hash (hash scrolling is handled separately)
+    const hash = window.location.hash;
+    if (!hash) {
+      // Reset scroll to top when navigating to a new file
+      const mainElement = document.querySelector('main');
+      if (mainElement) {
+        mainElement.scrollTop = 0;
+        console.log('[HomeContent] Reset scroll to top for new file:', ctx.currentFile.path);
+      }
+    }
+  }, [ctx.currentFile?.path]); // Only trigger on path change
+
   // Handle hash scrolling and text fragment highlighting
   useEffect(() => {
     if (!ctx.currentFile) return;

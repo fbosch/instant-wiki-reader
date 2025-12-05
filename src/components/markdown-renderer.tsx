@@ -14,6 +14,9 @@ import remarkGfm from "remark-gfm";
 import remarkWikiLink from "remark-wiki-link";
 import rehypeRaw from "rehype-raw";
 import rehypeHighlight from "rehype-highlight";
+import { visit } from "unist-util-visit";
+import type { Element, ElementContent, Root } from "hast";
+import type { Plugin, PluggableList } from "unified";
 import { match, P } from "ts-pattern";
 import { cn, extractAzureDevOpsPath } from "@/lib/utils";
 import { useFileSystem } from "@/contexts/FileSystemContext";
@@ -22,6 +25,7 @@ import mermaid from "mermaid";
 import type { FontFamily, ColorTheme } from "@/store/theme-store";
 import { colorThemes } from "@/store/theme-store";
 import { useUrlState } from "@/hooks/use-url-state";
+
 
 interface MarkdownRendererProps {
   content: string;
@@ -608,80 +612,62 @@ function preprocessMarkdown(
 /**
  * Highlight text fragment in markdown content
  * Wraps matching text with <mark> tags for visual highlighting
- * 
- * @param content - Markdown content to search
- * @param textFragment - Text to highlight (from URL hash #:~:text=...)
- * @returns Content with <mark> tags around matched text
  */
-function highlightTextFragment(content: string, textFragment: string | null | undefined): string {
-  if (!textFragment || !content) {
-    console.log('[highlightTextFragment] Skipping - no textFragment or content:', { textFragment, hasContent: !!content });
-    return content;
-  }
+function highlightTextFragment(textFragment: string): Plugin<[], Root> {
+  return () => {
+    return (tree) => {
+      const escapedFragment = textFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escapedFragment, 'gi');
 
-  try {
-    console.log('[highlightTextFragment] Highlighting text:', textFragment);
-    
-    // Escape special regex characters in the search text
-    const escapedFragment = textFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    console.log('[highlightTextFragment] Escaped fragment:', escapedFragment);
-    
-    // Create regex to match the text (case-insensitive, global)
-    const regex = new RegExp(`(${escapedFragment})`, 'gi');
-    
-    // Protect existing code blocks and inline code from highlighting
-    const codeBlocks: string[] = [];
-    const inlineCode: string[] = [];
-    
-    let protectedContent = content;
-    
-    // Protect code blocks
-    protectedContent = protectedContent.replace(/```[\s\S]*?```/g, (match) => {
-      codeBlocks.push(match);
-      return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
-    });
-    
-    // Protect inline code
-    protectedContent = protectedContent.replace(/`[^`]+`/g, (match) => {
-      inlineCode.push(match);
-      return `__INLINE_CODE_${inlineCode.length - 1}__`;
-    });
-    
-    // Test if pattern matches
-    const testMatch = regex.test(protectedContent);
-    console.log('[highlightTextFragment] Pattern matches content:', testMatch);
-    regex.lastIndex = 0; // Reset regex
-    
-    // Apply highlighting with <mark class="text-fragment-highlight">
-    // Using a class so we can style it consistently
-    const highlighted = protectedContent.replace(regex, '<mark class="text-fragment-highlight">$1</mark>');
-    
-    const matchCount = (highlighted.match(/<mark class="text-fragment-highlight">/g) || []).length;
-    console.log('[highlightTextFragment] Added', matchCount, 'highlight markers');
-    
-    // Restore code blocks
-    let restored = highlighted;
-    codeBlocks.forEach((block, index) => {
-      restored = restored.replace(`__CODE_BLOCK_${index}__`, block);
-    });
-    
-    // Restore inline code
-    inlineCode.forEach((code, index) => {
-      restored = restored.replace(`__INLINE_CODE_${index}__`, code);
-    });
-    
-    console.log('[highlightTextFragment] Sample of highlighted content:', restored.substring(0, 300));
-    
-    return restored;
-  } catch (error) {
-    console.error('[highlightTextFragment] Error highlighting text:', error);
-    return content;
-  }
+      visit(tree, 'text', (node, index, parent) => {
+        if (!node.value || !regex.test(node.value) || !parent || typeof index !== 'number') {
+          regex.lastIndex = 0;
+          return;
+        }
+
+        regex.lastIndex = 0;
+        const segments = node.value.split(regex);
+        const matches = node.value.match(regex);
+
+        if (!matches) {
+          return;
+        }
+
+        const newChildren: ElementContent[] = [];
+
+        segments.forEach((segment, segmentIndex) => {
+          if (segment) {
+            newChildren.push({
+              type: 'text',
+              value: segment,
+            });
+          }
+
+          if (segmentIndex < segments.length - 1) {
+            newChildren.push({
+              type: 'element',
+              tagName: 'mark',
+              properties: { className: ['text-fragment-highlight'] },
+              children: [
+                {
+                  type: 'text',
+                  value: matches[segmentIndex] ?? '',
+                },
+              ],
+            });
+          }
+        });
+
+        parent.children.splice(index, 1, ...newChildren);
+      });
+    };
+  };
 }
 
 /**
  * Generates an ID from heading text for anchor linking.
  * Converts to lowercase, replaces special chars and spaces with hyphens.
+
  *
  * @param text - Heading text
  * @returns URL-safe ID
@@ -737,6 +723,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
 }: MarkdownRendererProps) {
   const { azureDevOpsContext } = useFileSystem();
   const { getHighlightFromUrl } = useUrlState();
+  const highlightRef = useRef<HTMLDivElement | null>(null);
   
   // Use prop if provided, otherwise fallback to URL
   // This ensures the component re-renders when the hash changes
@@ -779,12 +766,9 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   
   // Apply text fragment highlighting FIRST (before escaping HTML tags)
   // This ensures the search can find matches in the original content
-  if (textFragment) {
-    console.log("[MarkdownRenderer] Applying text fragment highlight:", textFragment);
-    processedContent = highlightTextFragment(processedContent, textFragment);
-  }
   
   // Escape custom/unknown HTML tags that React doesn't recognize
+
   // Convert <customtag> to &lt;customtag&gt; for any tag that's not a standard HTML tag
   // Standard HTML tags that React/rehype-raw handles (including <mark> for highlighting)
   const knownHtmlTags = new Set([
@@ -842,7 +826,10 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
         rehypePlugins={[
           rehypeRaw,
           rehypeHighlight,
-        ]}
+          textFragment ? highlightTextFragment(textFragment) : undefined,
+        ].filter(Boolean) as PluggableList}
+
+
         components={{
           // Custom heading rendering with anchor IDs for table of contents
           // Using em units so headings scale with base font size
