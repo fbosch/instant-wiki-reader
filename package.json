@@ -10,8 +10,6 @@
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
-    "@netgrep/netgrep": "^0.1.5",
-    "@netgrep/search": "^0.1.5",
     "@react-aria/focus": "^3.21.2",
     "@react-aria/tree": "^3.1.4",
     "@react-aria/utils": "^3.31.0",
@@ -25,7 +23,6 @@
     "idb-keyval": "^6.2.2",
     "lucide-react": "^0.554.0",
     "mermaid": "^11.12.2",
-    "minisearch": "^7.2.0",
     "next": "16.0.4",
     "nuqs": "^2.8.2",
     "react": "19.2.0",

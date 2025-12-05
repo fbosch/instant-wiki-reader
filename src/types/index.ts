@@ -63,7 +63,7 @@ export interface FileSystemActions {
   loadNodeChildren: (node: DirectoryNode) => Promise<void>;
   openFile: (path: string) => void;
   loadFile: (path: string) => Promise<void>;
-  search: (query: string, mode?: SearchMode) => SearchIndexEntry[];
+  search: (query: string, mode?: SearchMode) => Promise<SearchIndexEntry[]>;
   searchContent: (query: string) => Promise<ContentSearchResult[]>;
   refresh: () => Promise<void>;
   clearDirectory: () => void;

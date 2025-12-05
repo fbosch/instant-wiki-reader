@@ -65,8 +65,8 @@ const FileSystemContext = createContext<FileSystemActions | undefined>(undefined
 
 // Provider component
 export function FileSystemProvider({ children }: { children: React.ReactNode }) {
-  // Initialize workers (only content search worker needed)
-  const { contentSearchWorker } = useWorkers();
+  // Initialize workers
+  const { contentSearchWorker, searchWorker } = useWorkers();
   
   // Get URL state management
   const { updateUrl } = useUrlState();
@@ -456,30 +456,41 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     }
   }, []);
 
-  // Search (currently simple sync search, can be enhanced with searchWorker for full-text)
+  // Filename/metadata search using worker (non-blocking)
   const search = useCallback(
-    (query: string, _mode: SearchMode = 'filename'): SearchIndexEntry[] => {
+    async (query: string, _mode: SearchMode = 'filename'): Promise<SearchIndexEntry[]> => {
       if (!query.trim()) return [];
+      
+      if (!searchWorker) {
+        console.warn('[FileSystemContext] Search worker not available, using fallback');
+        // Fallback to simple sync search
+        const lowerQuery = query.toLowerCase();
+        const mdFiles = filterMarkdownFiles(fileSystemStore.allFiles);
+        return mdFiles
+          .filter((file) => file.name.toLowerCase().includes(lowerQuery))
+          .map((file) => ({
+            path: getFilePath(file),
+            title: file.name,
+            headings: [],
+            keywords: [],
+          }));
+      }
 
-      // Simple filename search for now
-      const lowerQuery = query.toLowerCase();
-      const mdFiles = filterMarkdownFiles(fileSystemStore.allFiles);
-
-      const results: SearchIndexEntry[] = mdFiles
-        .filter((file) => {
-          const name = file.name.toLowerCase();
-          return name.includes(lowerQuery);
-        })
-        .map((file) => ({
-          path: getFilePath(file),
-          title: file.name,
+      try {
+        const results = await searchWorker.search(query.trim());
+        // Convert search results to SearchIndexEntry format
+        return results.map(result => ({
+          path: result.path,
+          title: result.name,
           headings: [],
           keywords: [],
         }));
-
-      return results;
+      } catch (error) {
+        console.error('[FileSystemContext] Search error:', error);
+        return [];
+      }
     },
-    []
+    [searchWorker]
   );
 
   // Full-text content search using worker

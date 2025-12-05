@@ -1,25 +1,20 @@
 /**
  * Content Search Worker
  * 
- * Provides two search methods:
- * 1. Full-text search using MiniSearch (fuzzy, ranked)
- * 2. Regex search using netgrep WASM + JS context extraction
- * 
+ * Provides full-text search using Fuse.js (fuzzy, ranked, field-boosted).
  * Accesses IndexedDB directly to avoid blocking the main thread.
  * Exposed via Comlink for easy async API.
  */
 
 console.log('[ContentSearchWorker] Module loading...');
 
-import MiniSearch from 'minisearch';
+import Fuse from 'fuse.js';
+import type { IFuseOptions } from 'fuse.js';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { expose } from 'comlink';
 import { FILE_CONTENTS_DB_NAME, FILE_CONTENTS_DB_VERSION } from '@/lib/db-constants';
 
 console.log('[ContentSearchWorker] Imports loaded');
-
-// Dynamic WASM module import
-let searchBytesModule: ((chunk: Uint8Array, pattern: string) => boolean) | null = null;
 
 /**
  * IndexedDB schema for file contents (must match main thread schema)
@@ -59,26 +54,6 @@ export interface SearchResult {
 }
 
 /**
- * Match context for a single line
- */
-export interface MatchContext {
-  lineNumber: number;
-  line: string;
-  matchStart: number;
-  matchEnd: number;
-}
-
-/**
- * Regex search result with line context
- */
-export interface RegexSearchResult {
-  path: string;
-  title: string;
-  matches: MatchContext[];
-  matchCount: number;
-}
-
-/**
  * Document for indexing
  */
 interface SearchDocument {
@@ -89,8 +64,20 @@ interface SearchDocument {
   headings: string;
 }
 
+/**
+ * Helper to decode content (supports both string and legacy ArrayBuffer format)
+ */
+function getContentAsString(content: string | ArrayBuffer): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  // Legacy ArrayBuffer format
+  const decoder = new TextDecoder('utf-8');
+  return decoder.decode(content);
+}
+
 class ContentSearchWorker {
-  private searchEngine: MiniSearch<SearchDocument> | null = null;
+  private searchEngine: Fuse<SearchDocument> | null = null;
   private db: IDBPDatabase<FileContentsDB> | null = null;
   private isIndexing = false;
   private indexedFileCount = 0;
@@ -186,7 +173,6 @@ class ContentSearchWorker {
 
   /**
    * Build search index from files in IndexedDB
-   * Only indexes metadata and text snippets, not full content
    */
   async buildIndex(): Promise<{ success: boolean; fileCount: number }> {
     if (this.isIndexing) {
@@ -196,17 +182,6 @@ class ContentSearchWorker {
     try {
       this.isIndexing = true;
       console.log('[ContentSearchWorker] Building search index...');
-
-      // Initialize MiniSearch
-      this.searchEngine = new MiniSearch<SearchDocument>({
-        fields: ['title', 'content', 'headings'], // Fields to index
-        storeFields: ['path', 'title'], // Only store path and title, not full content
-        searchOptions: {
-          boost: { title: 3, headings: 2, content: 1 },
-          fuzzy: 0.2,
-          prefix: true,
-        },
-      });
 
       // Load all files from IndexedDB
       const db = await this.getDB();
@@ -218,36 +193,42 @@ class ContentSearchWorker {
         console.warn('[ContentSearchWorker] No files found in IndexedDB contents store!');
         return { success: false, fileCount: 0 };
       }
-
-      // Helper to decode content (supports both string and ArrayBuffer)
-      const getContentAsString = (content: string | ArrayBuffer): string => {
-        if (typeof content === 'string') {
-          return content;
-        }
-        // Legacy ArrayBuffer format
-        const decoder = new TextDecoder('utf-8');
-        return decoder.decode(content);
-      };
       
       console.log('[ContentSearchWorker] Sample file paths:', allFiles.slice(0, 3).map(f => f.path));
       console.log('[ContentSearchWorker] Sample content types:', allFiles.slice(0, 3).map(f => typeof f.content));
 
-      // Index each file (MiniSearch will tokenize and index, but we don't keep full content in memory)
+      // Prepare documents for Fuse.js
       const documents: SearchDocument[] = allFiles.map((file) => {
         const contentStr = getContentAsString(file.content);
         return {
           id: file.path,
           path: file.path,
           title: this.extractTitle(file.path, contentStr),
-          content: contentStr, // MiniSearch indexes this but doesn't store in results
+          content: contentStr,
           headings: this.extractHeadings(contentStr),
         };
       });
 
-      this.searchEngine.addAll(documents);
+      // Initialize Fuse.js with documents
+      const fuseOptions: IFuseOptions<SearchDocument> = {
+        keys: [
+          { name: 'content', weight: 0.6 },   // Content gets highest weight
+          { name: 'title', weight: 0.3 },     // Title gets good weight
+          { name: 'headings', weight: 0.1 },  // Headings get lower weight
+        ],
+        threshold: 0.3,              // 0 = exact, 1 = match anything (0.3 is balanced)
+        distance: 200,               // Search distance for patterns
+        minMatchCharLength: 2,       // Minimum 2 chars to match
+        includeScore: true,          // Include relevance scores
+        includeMatches: true,        // Include match positions for snippets
+        ignoreLocation: true,        // Search anywhere in text
+        findAllMatches: false,       // Stop at first good match (faster)
+      };
+
+      this.searchEngine = new Fuse(documents, fuseOptions);
       this.indexedFileCount = documents.length;
 
-      console.log(`[ContentSearchWorker] Indexed ${this.indexedFileCount} files`);
+      console.log(`[ContentSearchWorker] Indexed ${this.indexedFileCount} files with Fuse.js`);
       
       // Log sample document to verify indexing
       if (documents.length > 0) {
@@ -272,11 +253,12 @@ class ContentSearchWorker {
 
   /**
    * Extract snippet context around search terms
+   * Finds ALL matches and highlights them
    */
   private async extractSnippets(
     path: string,
     terms: string[],
-    maxSnippets: number = 2
+    maxSnippets: number = 5
   ): Promise<{ [field: string]: string[] }> {
     try {
       const db = await this.getDB();
@@ -286,41 +268,38 @@ class ContentSearchWorker {
         return {};
       }
 
-      // Helper to decode content
-      const getContentAsString = (content: string | ArrayBuffer): string => {
-        if (typeof content === 'string') return content;
-        const decoder = new TextDecoder('utf-8');
-        return decoder.decode(content);
-      };
-
       const content = getContentAsString(cached.content);
       const snippets: string[] = [];
 
-      // Create regex from search terms
+      // Create regex from search terms to find ALL matches
       const termsRegex = new RegExp(
         terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
         'gi'
       );
 
-      // Split into lines and find matches
+      // Split into lines and find ALL matched lines
       const lines = content.split('\n');
       const matchedLines: Array<{ index: number; line: string }> = [];
 
       lines.forEach((line, index) => {
-        if (termsRegex.test(line) && matchedLines.length < maxSnippets * 2) {
+        // Reset regex for each line to find all matches
+        termsRegex.lastIndex = 0;
+        if (termsRegex.test(line)) {
           matchedLines.push({ index, line });
         }
       });
 
-      // Extract snippets with context
+      // Extract snippets with context (limit to maxSnippets for display)
       for (const match of matchedLines.slice(0, maxSnippets)) {
         const contextStart = Math.max(0, match.index - 1);
         const contextEnd = Math.min(lines.length, match.index + 2);
         const contextLines = lines.slice(contextStart, contextEnd);
         
-        // Highlight matches in the snippet
+        // Highlight ALL matches in the snippet
         const snippet = contextLines
           .map(line => {
+            // Reset regex for each line
+            termsRegex.lastIndex = 0;
             return line.replace(termsRegex, '<mark>$&</mark>');
           })
           .join(' ');
@@ -336,8 +315,8 @@ class ContentSearchWorker {
   }
 
   /**
-   * Search through indexed content
-   * Loads file content on-demand from IndexedDB to extract snippets
+   * Search through indexed content using Fuse.js
+   * Extracts snippets on-demand from IndexedDB
    */
   async search(query: string): Promise<SearchResult[]> {
     // Wait for auto-init to complete
@@ -363,12 +342,10 @@ class ContentSearchWorker {
     try {
       console.log(`[ContentSearchWorker] Searching for: "${query}"`);
       
-      const results = this.searchEngine.search(query, {
-        fuzzy: 0.2,
-        prefix: true,
-      });
+      // Fuse.js search - returns FuseResult<SearchDocument>[]
+      const results = this.searchEngine.search(query);
 
-      console.log(`[ContentSearchWorker] MiniSearch returned ${results.length} results`);
+      console.log(`[ContentSearchWorker] Fuse.js returned ${results.length} results`);
       console.log('[ContentSearchWorker] Raw results:', results.slice(0, 3));
       
       if (results.length === 0) {
@@ -377,16 +354,20 @@ class ContentSearchWorker {
         return [];
       }
 
+      // Extract search terms from query for snippet highlighting
+      const searchTerms = query.trim().toLowerCase().split(/\s+/);
+
       // Extract snippets for each result (on-demand from IndexedDB)
       const resultsWithSnippets = await Promise.all(
         results.slice(0, 50).map(async (result) => {
-          const snippets = await this.extractSnippets(result.path, result.terms);
+          const snippets = await this.extractSnippets(result.item.path, searchTerms);
           return {
-            path: result.path,
-            title: result.title,
-            score: result.score,
+            path: result.item.path,
+            title: result.item.title,
+            // Invert Fuse.js score: 0 = perfect match, we want higher = better
+            score: result.score !== undefined ? (1 - result.score) * 10 : 0,
             match: snippets,
-            terms: result.terms,
+            terms: searchTerms,
           };
         })
       );
@@ -423,121 +404,6 @@ class ContentSearchWorker {
     this.searchEngine = null;
     this.indexedFileCount = 0;
     console.log('[ContentSearchWorker] Index cleared');
-  }
-
-  /**
-   * Search file contents using WASM-powered regex matching
-   * Uses netgrep's ripgrep WASM for fast pattern detection,
-   * then extracts context using JavaScript for detailed results
-   */
-  async regexSearch(pattern: string, options?: { 
-    maxResults?: number;
-    contextLines?: number;
-  }): Promise<RegexSearchResult[]> {
-    if (!pattern || pattern.trim().length === 0) {
-      return [];
-    }
-
-    const maxResults = options?.maxResults || 100;
-    const results: RegexSearchResult[] = [];
-
-    try {
-      console.log(`[ContentSearchWorker] Regex searching for: "${pattern}"`);
-
-      // Load all files from IndexedDB
-      const db = await this.getDB();
-      const allFiles = await db.getAll('contents');
-
-      console.log(`[ContentSearchWorker] Searching ${allFiles.length} files`);
-
-      // Helper to decode content (supports both string and ArrayBuffer)
-      const getContentAsString = (content: string | ArrayBuffer): string => {
-        if (typeof content === 'string') {
-          return content;
-        }
-        // Legacy ArrayBuffer format
-        const decoder = new TextDecoder('utf-8');
-        return decoder.decode(content);
-      };
-
-      // Convert pattern to regex for context extraction
-      let regex: RegExp;
-      try {
-        regex = new RegExp(pattern, 'gi');
-      } catch (e) {
-        console.error('[ContentSearchWorker] Invalid regex pattern:', e);
-        return [];
-      }
-
-      // Search each file
-      for (const file of allFiles) {
-        if (results.length >= maxResults) {
-          break;
-        }
-
-        const contentStr = getContentAsString(file.content);
-
-        // First, use WASM for fast detection if available
-        let hasMatch = false;
-        
-        if (!searchBytesModule) {
-          try {
-            // @ts-ignore - Dynamic WASM import
-            const module = await import('@netgrep/search');
-            searchBytesModule = module.search_bytes;
-          } catch (e) {
-            console.warn('[ContentSearchWorker] WASM module not available, falling back to regex-only search');
-            // Fallback: use regex directly
-            regex.lastIndex = 0;
-            hasMatch = regex.test(contentStr);
-          }
-        }
-        
-        if (searchBytesModule) {
-          const textEncoder = new TextEncoder();
-          const bytes = textEncoder.encode(contentStr);
-          hasMatch = searchBytesModule(bytes, pattern);
-        }
-
-        if (!hasMatch) {
-          continue;
-        }
-
-        // If WASM detected a match, extract context with JS
-        const matches: MatchContext[] = [];
-        const lines = contentStr.split('\n');
-
-        lines.forEach((line: string, index: number) => {
-          // Reset regex lastIndex for global regex
-          regex.lastIndex = 0;
-          const match = regex.exec(line);
-
-          if (match) {
-            matches.push({
-              lineNumber: index + 1,
-              line: line,
-              matchStart: match.index,
-              matchEnd: match.index + match[0].length,
-            });
-          }
-        });
-
-        if (matches.length > 0) {
-          results.push({
-            path: file.path,
-            title: this.extractTitle(file.path, contentStr),
-            matches: matches,
-            matchCount: matches.length,
-          });
-        }
-      }
-
-      console.log(`[ContentSearchWorker] Found ${results.length} files with matches`);
-      return results;
-    } catch (error) {
-      console.error('[ContentSearchWorker] Regex search error:', error);
-      return [];
-    }
   }
 }
 

@@ -1,151 +1,85 @@
 /**
- * Web Worker for markdown parsing and search operations.
+ * Web Worker for filename and metadata search.
  * Uses Comlink for seamless RPC-style communication with main thread.
- * Uses Fuse.js for fuzzy search with better matching and scoring.
+ * Uses Fuse.js for fuzzy filename/heading search (non-blocking).
+ * 
+ * Note: Full-text content search is handled by content-search-worker.ts
  */
 
 import { expose } from 'comlink';
 import Fuse from 'fuse.js';
 import type { IFuseOptions } from 'fuse.js';
-import type { SearchIndexEntry } from '@/types';
 
 /**
- * Serializable file with content for processing.
+ * Simple file metadata for search indexing
  */
-interface FileWithContent {
+interface FileMetadata {
   path: string;
   name: string;
-  content: string;
 }
 
 /**
- * Extract headings from markdown content.
- * 
- * @param content - Markdown content
- * @returns Array of heading texts
+ * Search result from Fuse.js
  */
-function extractHeadings(content: string): string[] {
-  const headings: string[] = [];
-  const lines = content.split('\n');
-  
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('#')) {
-      // Remove # symbols and trim
-      const heading = trimmed.replace(/^#+\s*/, '').trim();
-      if (heading) {
-        headings.push(heading);
-      }
-    }
-  }
-  
-  return headings;
+interface SearchResult {
+  path: string;
+  name: string;
+  score: number;
 }
 
+// Store Fuse instance globally in worker
+let fuseInstance: Fuse<FileMetadata> | null = null;
+
 /**
- * Extract keywords from markdown content.
- * Simple implementation that extracts unique words.
+ * Build search index from file metadata.
+ * Fuse.js handles all the search logic - no custom extraction needed!
  * 
- * @param content - Markdown content
- * @returns Array of keywords
+ * @param files - Array of file metadata (path + name)
  */
-function extractKeywords(content: string): string[] {
-  // Remove markdown syntax
-  const cleaned = content
-    .replace(/```[\s\S]*?```/g, '') // Remove code blocks
-    .replace(/`[^`]+`/g, '') // Remove inline code
-    .replace(/!\[.*?\]\(.*?\)/g, '') // Remove images
-    .replace(/\[([^\]]+)\]\(.*?\)/g, '$1') // Keep link text
-    .replace(/[#*_~`]/g, '') // Remove markdown symbols
-    .toLowerCase();
-  
-  // Extract words (alphanumeric + hyphens)
-  const words = cleaned.match(/\b[\w-]+\b/g) || [];
-  
-  // Get unique words, filter short ones and common words
-  const commonWords = new Set(['the', 'and', 'for', 'are', 'but', 'not', 'with', 'this', 'that', 'from']);
-  const uniqueWords = [...new Set(words)]
-    .filter((word) => word.length > 2 && !commonWords.has(word))
-    .slice(0, 50); // Limit to top 50
-  
-  return uniqueWords;
+function buildIndex(files: FileMetadata[]): void {
+  const fuseOptions: IFuseOptions<FileMetadata> = {
+    keys: ['name', 'path'],      // Search in filename and path
+    threshold: 0.3,              // 0 = exact match, 1 = match anything (0.3 is good balance)
+    distance: 100,               // How far to search for pattern
+    minMatchCharLength: 2,       // Minimum 2 characters to match
+    includeScore: true,          // Include match score
+    includeMatches: false,       // Don't need match positions for simple filename search
+    ignoreLocation: true,        // Search anywhere in text
+    findAllMatches: false,       // Stop at first good match (faster)
+  };
+
+  fuseInstance = new Fuse(files, fuseOptions);
+  console.log(`[SearchWorker] Index built with ${files.length} files`);
 }
 
 /**
- * Build search index from files with content.
+ * Search through indexed files using Fuse.js.
  * 
- * @param files - Array of files with content
- * @returns Array of search index entries
- */
-function buildSearchIndex(files: FileWithContent[]): SearchIndexEntry[] {
-  return files.map((file) => ({
-    path: file.path,
-    title: file.name,
-    headings: extractHeadings(file.content),
-    keywords: extractKeywords(file.content),
-    content: file.content, // Keep for full-text search
-  }));
-}
-
-/**
- * Search through index entries using Fuse.js for fuzzy matching.
- * 
- * @param index - Search index
  * @param query - Search query
- * @param mode - Search mode ('filename' or 'fulltext')
- * @returns Array of matching entries with scores and match highlighting
+ * @returns Array of matching files with scores
  */
-function searchIndex(
-  index: SearchIndexEntry[],
-  query: string,
-  mode: 'filename' | 'fulltext' = 'filename'
-): Array<{ entry: SearchIndexEntry; score: number; matches?: any }> {
-  if (!query.trim()) {
+function search(query: string): SearchResult[] {
+  if (!query.trim() || !fuseInstance) {
     return [];
   }
 
-  // Configure Fuse.js options based on search mode
-  const fuseOptions: IFuseOptions<SearchIndexEntry> = {
-    keys: mode === 'filename' 
-      ? [
-          { name: 'title', weight: 0.7 },       // Filename gets highest weight
-          { name: 'headings', weight: 0.3 },    // Headings get lower weight
-        ]
-      : [
-          { name: 'title', weight: 0.4 },       // Filename important but not dominant
-          { name: 'headings', weight: 0.3 },    // Headings get good weight
-          { name: 'content', weight: 0.3 },     // Content search in fulltext mode
-        ],
-    threshold: 0.4,              // 0 = perfect match, 1 = match anything
-    distance: 100,               // How far to search for a pattern match
-    minMatchCharLength: 2,       // Minimum match length
-    includeScore: true,          // Include match score
-    includeMatches: true,        // Include match positions for highlighting
-    ignoreLocation: true,        // Search anywhere in text (not just beginning)
-    useExtendedSearch: false,    // Don't use special operators
-    findAllMatches: true,        // Find all matches, not just first
-  };
-
-  // Create Fuse instance with the index
-  const fuse = new Fuse(index, fuseOptions);
+  // Let Fuse.js do all the work!
+  const results = fuseInstance.search(query);
   
-  // Perform search
-  const results = fuse.search(query);
-  
-  // Transform results to match our expected format
+  // Transform to simpler format
   return results.map((result) => ({
-    entry: result.item,
-    score: result.score !== undefined ? (1 - result.score) * 10 : 0, // Invert score (Fuse.js: lower is better)
-    matches: result.matches, // Include match information for highlighting
+    path: result.item.path,
+    name: result.item.name,
+    // Invert score: Fuse.js uses 0 = best, 1 = worst
+    // We return 0-10 where 10 = best match
+    score: result.score !== undefined ? (1 - result.score) * 10 : 0,
   }));
 }
 
 // Worker API
 const workerApi = {
-  buildSearchIndex,
-  searchIndex,
-  extractHeadings,
-  extractKeywords,
+  buildIndex,
+  search,
 };
 
 // Expose API via Comlink
