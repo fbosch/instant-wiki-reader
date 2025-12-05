@@ -173,6 +173,7 @@ class ContentSearchWorker {
 
   /**
    * Build search index from files in IndexedDB
+   * Only indexes title and headings (not full content) for speed
    */
   async buildIndex(): Promise<{ success: boolean; fileCount: number }> {
     if (this.isIndexing) {
@@ -197,38 +198,40 @@ class ContentSearchWorker {
       console.log('[ContentSearchWorker] Sample file paths:', allFiles.slice(0, 3).map(f => f.path));
       console.log('[ContentSearchWorker] Sample content types:', allFiles.slice(0, 3).map(f => typeof f.content));
 
-      // Prepare documents for Fuse.js
+      // Prepare documents for Fuse.js - DON'T index full content (too slow)
       const documents: SearchDocument[] = allFiles.map((file) => {
         const contentStr = getContentAsString(file.content);
         return {
           id: file.path,
           path: file.path,
           title: this.extractTitle(file.path, contentStr),
-          content: contentStr,
+          content: '', // Don't index content - we'll search it separately
           headings: this.extractHeadings(contentStr),
         };
       });
 
-      // Initialize Fuse.js with documents
+      // Initialize Fuse.js with documents - optimized for speed
       const fuseOptions: IFuseOptions<SearchDocument> = {
         keys: [
-          { name: 'content', weight: 0.6 },   // Content gets highest weight
-          { name: 'title', weight: 0.3 },     // Title gets good weight
-          { name: 'headings', weight: 0.1 },  // Headings get lower weight
+          { name: 'title', weight: 0.7 },     // Title gets highest weight
+          { name: 'headings', weight: 0.3 },  // Headings get lower weight
+          // content is NOT searched with Fuse (too slow) - we use regex instead
         ],
-        threshold: 0.3,              // 0 = exact, 1 = match anything (0.3 is balanced)
-        distance: 200,               // Search distance for patterns
+        threshold: 0.4,              // 0 = exact, 1 = match anything (0.4 balanced for fuzzy)
+        distance: 100,               // Reduced from 200 for speed
         minMatchCharLength: 2,       // Minimum 2 chars to match
         includeScore: true,          // Include relevance scores
-        includeMatches: true,        // Include match positions for snippets
+        includeMatches: false,       // Don't need match positions (faster)
         ignoreLocation: true,        // Search anywhere in text
         findAllMatches: false,       // Stop at first good match (faster)
+        shouldSort: true,            // Sort by score
+        useExtendedSearch: false,    // No special operators (faster)
       };
 
       this.searchEngine = new Fuse(documents, fuseOptions);
       this.indexedFileCount = documents.length;
 
-      console.log(`[ContentSearchWorker] Indexed ${this.indexedFileCount} files with Fuse.js`);
+      console.log(`[ContentSearchWorker] Indexed ${this.indexedFileCount} files with Fuse.js (title + headings only)`);
       
       // Log sample document to verify indexing
       if (documents.length > 0) {
@@ -237,8 +240,7 @@ class ContentSearchWorker {
           id: sample.id,
           path: sample.path,
           title: sample.title,
-          contentLength: sample.content.length,
-          contentPreview: sample.content.substring(0, 100),
+          headingsLength: sample.headings.length,
         });
       }
       
@@ -315,8 +317,10 @@ class ContentSearchWorker {
   }
 
   /**
-   * Search through indexed content using Fuse.js
-   * Extracts snippets on-demand from IndexedDB
+   * Search through indexed content using hybrid approach:
+   * 1. Fuse.js for fuzzy title/heading search (fast)
+   * 2. Regex for full-text content search (accurate)
+   * Extracts snippets on-demand from IndexedDB with match positions
    */
   async search(query: string): Promise<SearchResult[]> {
     // Wait for auto-init to complete
@@ -341,44 +345,125 @@ class ContentSearchWorker {
 
     try {
       console.log(`[ContentSearchWorker] Searching for: "${query}"`);
+      const startTime = performance.now();
       
-      // Fuse.js search - returns FuseResult<SearchDocument>[]
-      const results = this.searchEngine.search(query);
+      // Step 1: Fuzzy search on title/headings with Fuse.js (fast)
+      const fuseResults = this.searchEngine.search(query);
+      console.log(`[ContentSearchWorker] Fuse.js found ${fuseResults.length} title/heading matches in ${(performance.now() - startTime).toFixed(2)}ms`);
 
-      console.log(`[ContentSearchWorker] Fuse.js returned ${results.length} results`);
-      console.log('[ContentSearchWorker] Raw results:', results.slice(0, 3));
+      // Step 2: Also search content with regex (accurate + fast for exact matches)
+      const contentMatches = await this.searchContentByRegex(query);
+      console.log(`[ContentSearchWorker] Regex found ${contentMatches.size} content matches in ${(performance.now() - startTime).toFixed(2)}ms total`);
+
+      // Combine results: Fuse results + content matches
+      const combinedPaths = new Set([
+        ...fuseResults.map(r => r.item.path),
+        ...contentMatches.keys()
+      ]);
+
+      console.log(`[ContentSearchWorker] Combined: ${combinedPaths.size} unique documents`);
       
-      if (results.length === 0) {
+      if (combinedPaths.size === 0) {
         console.warn('[ContentSearchWorker] No results found for query:', query);
-        console.log('[ContentSearchWorker] Search engine has', this.indexedFileCount, 'documents indexed');
         return [];
       }
 
       // Extract search terms from query for snippet highlighting
       const searchTerms = query.trim().toLowerCase().split(/\s+/);
 
-      // Extract snippets for each result (on-demand from IndexedDB)
-      const resultsWithSnippets = await Promise.all(
-        results.slice(0, 50).map(async (result) => {
-          const snippets = await this.extractSnippets(result.item.path, searchTerms);
-          return {
-            path: result.item.path,
-            title: result.item.title,
-            // Invert Fuse.js score: 0 = perfect match, we want higher = better
-            score: result.score !== undefined ? (1 - result.score) * 10 : 0,
-            match: snippets,
-            terms: searchTerms,
-          };
-        })
-      );
+      // Build results with scores and snippets
+      const results: SearchResult[] = [];
+      
+      for (const path of Array.from(combinedPaths).slice(0, 50)) {
+        const fuseResult = fuseResults.find(r => r.item.path === path);
+        const hasContentMatch = contentMatches.has(path);
+        
+        // Calculate combined score
+        // Content matches get HIGHEST score (10-8), title/heading matches get lower score (0-6)
+        let score = 0;
+        if (hasContentMatch && fuseResult) {
+          score = 10; // Perfect - matches both title/heading AND content
+        } else if (hasContentMatch) {
+          score = 9; // Excellent - matches content only (boosted from 8)
+        } else if (fuseResult) {
+          // Good - matches title/heading only (use Fuse score)
+          score = fuseResult.score !== undefined ? (1 - fuseResult.score) * 6 : 5;
+        }
 
-      console.log(`[ContentSearchWorker] Returning ${resultsWithSnippets.length} results with snippets`);
+        // Only extract snippets for files with content matches
+        // Title/heading-only matches don't need snippets
+        const snippets = hasContentMatch 
+          ? await this.extractSnippets(path, searchTerms)
+          : {};
+        
+        results.push({
+          path,
+          title: fuseResult?.item.title || path.split('/').pop() || path,
+          score,
+          match: snippets,
+          terms: searchTerms,
+        });
+      }
 
-      return resultsWithSnippets;
+      // Sort by score descending (content matches will be at top: 10, 9, then title/heading: 0-6)
+      results.sort((a, b) => b.score - a.score);
+
+      console.log(`[ContentSearchWorker] Returning ${results.length} results in ${(performance.now() - startTime).toFixed(2)}ms`);
+      
+      // Log score distribution for debugging
+      if (results.length > 0) {
+        const scoreBreakdown = {
+          contentAndTitle: results.filter(r => r.score === 10).length,
+          contentOnly: results.filter(r => r.score === 9).length,
+          titleOnly: results.filter(r => r.score < 9).length,
+        };
+        console.log('[ContentSearchWorker] Score distribution:', scoreBreakdown);
+        console.log('[ContentSearchWorker] Top 3 results:', results.slice(0, 3).map(r => ({
+          path: r.path,
+          score: r.score,
+          hasSnippets: Object.keys(r.match).length > 0,
+        })));
+      }
+
+      return results;
     } catch (error) {
       console.error('[ContentSearchWorker] Search error:', error);
       return [];
     }
+  }
+
+  /**
+   * Search content using fast regex matching
+   * Returns Set of paths that match
+   */
+  private async searchContentByRegex(query: string): Promise<Set<string>> {
+    const matches = new Set<string>();
+    
+    try {
+      const db = await this.getDB();
+      const allFiles = await db.getAll('contents');
+      
+      // Create regex from query (case-insensitive)
+      const searchTerms = query.trim().toLowerCase().split(/\s+/);
+      const regex = new RegExp(
+        searchTerms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
+        'gi'
+      );
+      
+      // Search each file's content
+      for (const file of allFiles) {
+        const content = getContentAsString(file.content);
+        regex.lastIndex = 0; // Reset regex
+        
+        if (regex.test(content)) {
+          matches.add(file.path);
+        }
+      }
+    } catch (error) {
+      console.error('[ContentSearchWorker] Regex search error:', error);
+    }
+    
+    return matches;
   }
 
   /**
