@@ -1,7 +1,7 @@
 'use client';
 
-import { parseAsString, parseAsArrayOf, useQueryStates } from 'nuqs';
 import { useCallback, useSyncExternalStore } from 'react';
+import { parseAsString, parseAsArrayOf, useQueryStates } from 'nuqs';
 import { useRouter } from 'next/navigation';
 
 /**
@@ -11,26 +11,22 @@ function decodeFilePath(value: string): string {
   try {
     return decodeURIComponent(value);
   } catch (e) {
-    // If decoding fails, return the original value
     return value;
   }
 }
 
 /**
- * Extract text fragment from current URL hash
- * Only logs on actual text fragments to reduce console noise
+ * Get text fragment from hash
  */
 function getTextFragmentFromHash(): string | null {
+  if (typeof window === 'undefined') return null;
+  
   const hash = window.location.hash;
-  // Extract text fragment: #:~:text=something
   const match = hash.match(/#:~:text=(.+)/);
   if (match && match[1]) {
     try {
-      const decoded = decodeURIComponent(match[1]);
-      console.log('[useUrlState] Extracted text fragment:', decoded);
-      return decoded;
+      return decodeURIComponent(match[1].replace(/%2D/g, '-'));
     } catch {
-      console.log('[useUrlState] Failed to decode, using raw:', match[1]);
       return match[1];
     }
   }
@@ -46,46 +42,38 @@ function subscribeToHash(callback: () => void): () => void {
 }
 
 /**
- * Server snapshot for SSR (no hash on server)
+ * Server snapshot
  */
 function getServerSnapshot(): null {
   return null;
 }
 
 /**
- * Custom parser for file parameter with double-decode support
+ * Custom parsers for nuqs
  */
 const fileParser = parseAsString.withDefault('');
-
-/**
- * Custom parser for expanded directories (comma-separated array)
- */
 const expandedParser = parseAsArrayOf(parseAsString, ',').withDefault([]);
 
 /**
- * Custom parser for text fragment (highlight parameter)
- */
-const highlightParser = parseAsString.withDefault('');
-
-/**
- * Custom hook for managing application state in URL parameters using nuqs.
- * Provides functions to update file path, expanded directories, and text fragments in the URL.
+ * Custom hook for managing application state in URL.
+ * Uses nuqs for query params, useSyncExternalStore for hash.
  */
 export function useUrlState() {
   const router = useRouter();
+  
+  // Use nuqs for query parameters
   const [state, setState] = useQueryStates(
     {
       file: fileParser,
       expanded: expandedParser,
-      highlight: highlightParser,
     },
     {
       history: 'replace',
       scroll: false,
     }
   );
-
-  // Track text fragment using useSyncExternalStore (hash is not managed by nuqs)
+  
+  // Use useSyncExternalStore for hash (text fragment)
   const textFragment = useSyncExternalStore(
     subscribeToHash,
     getTextFragmentFromHash,
@@ -97,33 +85,64 @@ export function useUrlState() {
     expanded?: Set<string> | null;
     textFragment?: string | null;
   }) => {
-    const newState: { file?: string | null; expanded?: string[] | null; highlight?: string | null } = {};
-
-    // Update file parameter
+    console.log('[useUrlState] updateUrl called with:', updates);
+    
+    // If we have a text fragment, we need to handle URL update manually
+    // because nuqs doesn't support hash fragments
+    if (updates.textFragment !== undefined && updates.textFragment) {
+      const encodedText = encodeURIComponent(updates.textFragment).replace(/-/g, '%2D');
+      const hash = `#:~:text=${encodedText}`;
+      
+      // Build query params manually
+      const params = new URLSearchParams(window.location.search);
+      
+      if (updates.file !== undefined) {
+        if (updates.file) params.set('file', updates.file);
+        else params.delete('file');
+      }
+      
+      if (updates.expanded !== undefined) {
+        if (updates.expanded && updates.expanded.size > 0) {
+          params.set('expanded', Array.from(updates.expanded).join(','));
+        } else {
+          params.delete('expanded');
+        }
+      }
+      
+      const queryString = params.toString();
+      const newPath = `${window.location.pathname}${queryString ? '?' + queryString : ''}${hash}`;
+      
+      console.log('[useUrlState] Replacing with path (with hash):', newPath);
+      router.replace(newPath, { scroll: false });
+      
+      return;
+    }
+    
+    // No text fragment - use nuqs normally
+    const newState: { file?: string | null; expanded?: string[] | null } = {};
+    
     if (updates.file !== undefined) {
       newState.file = updates.file || null;
     }
-
-    // Update expanded directories parameter
+    
     if (updates.expanded !== undefined) {
       newState.expanded = updates.expanded && updates.expanded.size > 0
         ? Array.from(updates.expanded)
         : null;
     }
     
-    // Update highlight/text fragment parameter
-    if (updates.textFragment !== undefined) {
-      newState.highlight = updates.textFragment || null;
-    }
-
     await setState(newState);
-  }, [setState]);
+    
+    // Clear hash if explicitly requested
+    if (updates.textFragment === null) {
+      console.log('[useUrlState] Clearing hash');
+      window.location.hash = '';
+    }
+  }, [setState, router]);
 
   const getFileFromUrl = useCallback(() => {
     const rawFile = state.file;
     if (!rawFile) return null;
-    
-    // Apply double-decode logic
     return decodeFilePath(rawFile);
   }, [state.file]);
 
@@ -132,13 +151,13 @@ export function useUrlState() {
   }, [state.expanded]);
 
   const getHighlightFromUrl = useCallback(() => {
-    return state.highlight || null;
-  }, [state.highlight]);
+    return textFragment;
+  }, [textFragment]);
 
   return {
     updateUrl,
     getFileFromUrl,
     getExpandedFromUrl,
-    getHighlightFromUrl, // Renamed from getTextFragmentFromUrl
+    getHighlightFromUrl,
   };
 }

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useCallback, useEffect, useState } from 'react';
 import { useSnapshot } from 'valtio';
+import { useUrlState } from '@/hooks/use-url-state';
 import type {
   FileSystemActions,
   DirectoryNode,
@@ -64,12 +65,11 @@ const FileSystemContext = createContext<FileSystemActions | undefined>(undefined
 
 // Provider component
 export function FileSystemProvider({ children }: { children: React.ReactNode }) {
-  const [urlUpdateCallback, setUrlUpdateCallback] = useState<
-    ((file: string | null, expanded: Set<string>) => void) | null
-  >(null);
-  
   // Initialize workers (only content search worker needed)
   const { contentSearchWorker } = useWorkers();
+  
+  // Get URL state management
+  const { updateUrl } = useUrlState();
 
   // Helper to extract wiki name and Azure DevOps context from directory handle
   const getWikiName = useCallback(async (handle: FileSystemDirectoryHandle | null): Promise<string | null> => {
@@ -367,99 +367,93 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
 
   // Open a file
   const openFile = useCallback(
-    async (path: string) => {
-      try {
-        const startTime = performance.now();
-        console.log('[openFile] ========== START ==========');
-        console.log('[openFile] Opening file:', path);
-        
-        // Check in-memory cache first (fastest)
-        const cached = fileSystemStore.fileCache.get(path);
-        if (cached) {
-          console.log('[openFile] ✓ Found in memory cache (took', (performance.now() - startTime).toFixed(2), 'ms)');
-          setCurrentFile(cached);
-          urlUpdateCallback?.(path, getCurrentExpandedDirs());
-          return;
-        }
-
-        console.log('[openFile] Loading file...');
-        console.log('[openFile] - Path:', path);
-        
-        let content: string | null = null;
-        
-        // Try IndexedDB cache first
-        console.log('[openFile] Trying IndexedDB cache...');
-        const { getFileContentFromCache } = await import('@/lib/file-system');
-        content = await getFileContentFromCache(path);
-        
-        // Fallback to File objects if cache missed
-        if (content === null) {
-          const allFiles = fileSystemStore.allFiles;
-          console.log('[openFile] Cache miss, trying allFiles... (length:', allFiles.length, ')');
-          
-          if (allFiles.length > 0) {
-            // Use getFileByPath which handles URL encoding/decoding
-            const file = getFileByPath(allFiles, path);
-            
-            if (file) {
-              console.log('[openFile] ✓ Found file in allFiles, reading...');
-              content = await readFileAsText(file);
-            } else {
-              console.log('[openFile] File not found in allFiles');
-              console.log('[openFile] Looking for:', path);
-            }
-          }
-        }
-        
-        // Final fallback: Try to read from File System Access API directly
-        if (content === null && fileSystemStore.rootHandle) {
-          console.log('[openFile] Trying File System Access API directly...');
-          try {
-            // Navigate through directory structure to find the file
-            const parts = path.split('/');
-            let currentHandle: FileSystemDirectoryHandle = fileSystemStore.rootHandle;
-            
-            // Navigate through directories
-            for (let i = 0; i < parts.length - 1; i++) {
-              currentHandle = await currentHandle.getDirectoryHandle(parts[i]);
-            }
-            
-            // Get the file
-            const fileName = parts[parts.length - 1];
-            const fileHandle = await currentHandle.getFileHandle(fileName);
-            const file = await fileHandle.getFile();
-            content = await readFileAsText(file);
-            console.log('[openFile] ✓ Read from File System Access API');
-          } catch (error) {
-            console.log('[openFile] File System Access API failed:', error);
-          }
-        }
-        
-        if (content === null) {
-          console.error('[openFile] ❌ File not found in any source');
-          console.error('[openFile] Path:', path);
-          throw new Error(ERROR_MESSAGES.FILE_NOT_FOUND(path));
-        }
-        
-        console.log('[openFile] ✓ Loaded successfully (took', (performance.now() - startTime).toFixed(2), 'ms)');
-        
-        const fileContent: FileContent = {
-          path,
-          content,
-        };
-
-        updateFileCache(path, fileContent);
-        setCurrentFile(fileContent);
-        urlUpdateCallback?.(path, getCurrentExpandedDirs());
-        
-        console.log('[openFile] ========== TOTAL:', (performance.now() - startTime).toFixed(2), 'ms ==========');
-      } catch (error) {
-        console.error(ERROR_MESSAGES.OPEN_FAILED, error);
-        throw error;
-      }
+    (path: string) => {
+      console.log('[openFile] Updating URL to file:', path);
+      // Just update the URL - page.tsx will observe and load the file
+      updateUrl({ file: path });
     },
-    [urlUpdateCallback]
+    [updateUrl]
   );
+
+  // Load file content (called by page.tsx when URL changes)
+  const loadFile = useCallback(async (path: string) => {
+    try {
+      const startTime = performance.now();
+      console.log('[loadFile] ========== START ==========');
+      console.log('[loadFile] Loading file:', path);
+      
+      // Check in-memory cache first (fastest)
+      const cached = fileSystemStore.fileCache.get(path);
+      if (cached) {
+        console.log('[loadFile] ✓ Found in memory cache (took', (performance.now() - startTime).toFixed(2), 'ms)');
+        setCurrentFile(cached);
+        return;
+      }
+
+      console.log('[loadFile] Not in cache, loading...');
+      
+      let content: string | null = null;
+      
+      // Try IndexedDB cache first
+      console.log('[loadFile] Trying IndexedDB cache...');
+      const { getFileContentFromCache } = await import('@/lib/file-system');
+      content = await getFileContentFromCache(path);
+      
+      // Fallback to File objects if cache missed
+      if (content === null) {
+        const allFiles = fileSystemStore.allFiles;
+        console.log('[loadFile] Cache miss, trying allFiles... (length:', allFiles.length, ')');
+        
+        if (allFiles.length > 0) {
+          const file = getFileByPath(allFiles, path);
+          
+          if (file) {
+            console.log('[loadFile] ✓ Found file in allFiles, reading...');
+            content = await readFileAsText(file);
+          } else {
+            console.log('[loadFile] File not found in allFiles');
+          }
+        }
+      }
+      
+      // Final fallback: Try to read from File System Access API directly
+      if (content === null && fileSystemStore.rootHandle) {
+        console.log('[loadFile] Trying File System Access API directly...');
+        try {
+          const parts = path.split('/');
+          let currentHandle: FileSystemDirectoryHandle = fileSystemStore.rootHandle;
+          
+          for (let i = 0; i < parts.length - 1; i++) {
+            currentHandle = await currentHandle.getDirectoryHandle(parts[i]);
+          }
+          
+          const fileName = parts[parts.length - 1];
+          const fileHandle = await currentHandle.getFileHandle(fileName);
+          const file = await fileHandle.getFile();
+          content = await readFileAsText(file);
+          console.log('[loadFile] ✓ Read from File System Access API');
+        } catch (error) {
+          console.log('[loadFile] File System Access API failed:', error);
+        }
+      }
+      
+      if (content === null) {
+        console.error('[loadFile] ❌ File not found in any source');
+        throw new Error(ERROR_MESSAGES.FILE_NOT_FOUND(path));
+      }
+      
+      console.log('[loadFile] ✓ Loaded successfully (took', (performance.now() - startTime).toFixed(2), 'ms)');
+      
+      const fileContent: FileContent = { path, content };
+      updateFileCache(path, fileContent);
+      setCurrentFile(fileContent);
+      
+      console.log('[loadFile] ========== TOTAL:', (performance.now() - startTime).toFixed(2), 'ms ==========');
+    } catch (error) {
+      console.error(ERROR_MESSAGES.OPEN_FAILED, error);
+      throw error;
+    }
+  }, []);
 
   // Search (currently simple sync search, can be enhanced with searchWorker for full-text)
   const search = useCallback(
@@ -550,29 +544,15 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     clearAllFileSystem();
   }, []);
 
-  // Set expanded directories (delegates to ui-store)
-  const setExpandedDirs = useCallback((dirs: Set<string>) => {
-    // This is now handled by ui-store, but we keep the interface for compatibility
-    // The actual implementation is in ui-store.ts via setExpandedDirs action
-    // Notify URL update callback
-    urlUpdateCallback?.(fileSystemStore.currentFile?.path || null, dirs);
-  }, [urlUpdateCallback]);
-
-  // Set URL update callback
-  const setUrlUpdateCallbackFn = useCallback((callback: (file: string | null, expanded: Set<string>) => void) => {
-    setUrlUpdateCallback(() => callback);
-  }, []);
-
   const value = {
     selectDirectory,
     loadNodeChildren,
     openFile,
+    loadFile,
     search,
     searchContent,
     refresh,
     clearDirectory,
-    setExpandedDirs,
-    setUrlUpdateCallback: setUrlUpdateCallbackFn,
   };
 
   return (

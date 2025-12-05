@@ -32,6 +32,7 @@ interface MarkdownRendererProps {
     fontSize: number;
     lineHeight: number;
   };
+  textFragment?: string | null;
 }
 
 /**
@@ -380,9 +381,7 @@ function MarkdownLink({
                     ? file.path
                     : (file as any).webkitRelativePath || file.name;
                 console.log("[MarkdownLink] Found local file:", localFilePath);
-                openFile(localFilePath).catch((error) => {
-                  console.error("Failed to open local file:", error);
-                });
+                openFile(localFilePath);
                 return true; // Handled
               })
               .otherwise(() => {
@@ -430,9 +429,7 @@ function MarkdownLink({
             resolvedPath = `${resolvedPath}.md`;
           }
 
-          openFile(resolvedPath).catch((error) => {
-            console.error("Failed to navigate to:", resolvedPath, error);
-          });
+          openFile(resolvedPath);
 
           return true;
         });
@@ -736,14 +733,19 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
   className,
   themeConfig,
+  textFragment: textFragmentProp,
 }: MarkdownRendererProps) {
   const { azureDevOpsContext } = useFileSystem();
   const { getHighlightFromUrl } = useUrlState();
   
-  // Get highlight text from URL query parameter
-  const textFragment = getHighlightFromUrl();
+  // Use prop if provided, otherwise fallback to URL
+  // This ensures the component re-renders when the hash changes
+  const textFragmentFromUrl = getHighlightFromUrl();
+  const textFragment = textFragmentProp !== undefined ? textFragmentProp : textFragmentFromUrl;
   
-  console.log('[MarkdownRenderer] textFragment from URL:', textFragment);
+  console.log('[MarkdownRenderer] textFragment prop:', textFragmentProp);
+  console.log('[MarkdownRenderer] textFragment from URL:', textFragmentFromUrl);
+  console.log('[MarkdownRenderer] textFragment final:', textFragment);
   
   // Extract theme colors
   const colors = themeConfig 
@@ -775,9 +777,16 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   // Preprocess content to fix common markdown issues and add Azure DevOps links
   let processedContent = preprocessMarkdown(content, azureDevOpsBaseUrl);
   
+  // Apply text fragment highlighting FIRST (before escaping HTML tags)
+  // This ensures the search can find matches in the original content
+  if (textFragment) {
+    console.log("[MarkdownRenderer] Applying text fragment highlight:", textFragment);
+    processedContent = highlightTextFragment(processedContent, textFragment);
+  }
+  
   // Escape custom/unknown HTML tags that React doesn't recognize
   // Convert <customtag> to &lt;customtag&gt; for any tag that's not a standard HTML tag
-  // Standard HTML tags that React/rehype-raw handles
+  // Standard HTML tags that React/rehype-raw handles (including <mark> for highlighting)
   const knownHtmlTags = new Set([
     'a', 'abbr', 'address', 'area', 'article', 'aside', 'audio', 'b', 'base', 'bdi', 'bdo',
     'blockquote', 'body', 'br', 'button', 'canvas', 'caption', 'cite', 'code', 'col', 'colgroup',
@@ -791,7 +800,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
     'th', 'thead', 'time', 'title', 'tr', 'track', 'u', 'ul', 'var', 'video', 'wbr'
   ]);
   
-  // Escape unknown HTML tags
+  // Escape unknown HTML tags (but preserve <mark> tags added by highlighting above)
   processedContent = processedContent.replace(/<(\/?)([\w-]+)([^>]*)>/g, (match, slash, tagName, attrs) => {
     // If it's a known HTML tag or already escaped, leave it as-is
     if (knownHtmlTags.has(tagName.toLowerCase()) || match.startsWith('&lt;')) {
@@ -801,12 +810,6 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
     console.log('[MarkdownRenderer] Escaping unknown HTML tag:', tagName);
     return `&lt;${slash}${tagName}${attrs}&gt;`;
   });
-  
-  // Apply text fragment highlighting if present
-  if (textFragment) {
-    console.log("[MarkdownRenderer] Applying text fragment highlight:", textFragment);
-    processedContent = highlightTextFragment(processedContent, textFragment);
-  }
 
   console.log(
     "[MarkdownRenderer] Content sample (first 200 chars):",

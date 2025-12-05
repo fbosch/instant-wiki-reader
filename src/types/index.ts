@@ -61,11 +61,11 @@ export interface ContentSearchResult {
 export interface FileSystemActions {
   selectDirectory: () => Promise<void>;
   loadNodeChildren: (node: DirectoryNode) => Promise<void>;
-  openFile: (path: string) => Promise<void>;
+  openFile: (path: string) => void;
+  loadFile: (path: string) => Promise<void>;
   search: (query: string, mode?: SearchMode) => SearchIndexEntry[];
   searchContent: (query: string) => Promise<ContentSearchResult[]>;
   refresh: () => Promise<void>;
   clearDirectory: () => void;
-  setExpandedDirs: (dirs: Set<string>) => void;
-  setUrlUpdateCallback: (callback: (file: string | null, expanded: Set<string>) => void) => void;
+}
 }

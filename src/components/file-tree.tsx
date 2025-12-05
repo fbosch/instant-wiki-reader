@@ -192,18 +192,14 @@ function FileTreeItem({
     userClickedRef.current = true;
     
     if (item.type === 'file') {
-      openFile(item.path).catch((error) => {
-        console.error('Failed to open file:', item.path, error);
-      });
+      openFile(item.path);
       tree.setSelectedKeys(new Set([node.key]));
     } else {
       // For directories, toggle expansion and open index file if it exists
       console.log('[FileTreeItem] Toggling directory:', node.key);
       toggleExpandDir(node.key);
       if (item.indexFile) {
-        openFile(item.indexFile).catch((error) => {
-          console.error('Failed to open index file:', item.indexFile, error);
-        });
+        openFile(item.indexFile);
       }
     }
   };

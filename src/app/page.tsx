@@ -38,7 +38,7 @@ function getServerHash() {
  */
 function HomeContent() {
   const ctx = useFileSystem();
-  const { updateUrl, getFileFromUrl, getExpandedFromUrl } = useUrlState();
+  const { updateUrl, getFileFromUrl, getExpandedFromUrl, getHighlightFromUrl } = useUrlState();
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [filteredTree, setFilteredTree] = useState<DirectoryNode | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,16 +48,12 @@ function HomeContent() {
   // Subscribe to hash changes for reactive text fragment highlighting
   const currentHash = useSyncExternalStore(subscribeToHashChanges, getHash, getServerHash);
   
+  // Get text fragment from URL hash for passing to MarkdownRenderer
+  const textFragment = getHighlightFromUrl();
+  console.log('[HomeContent] textFragment from URL:', textFragment, 'currentHash:', currentHash);
+  
   // Get theme settings
   const { fontFamily, fontSize, lineHeight, colorTheme, contentWidth, centerContent } = useSnapshot(themeStore);
-
-  // Set up URL update callback
-  useEffect(() => {
-    ctx.setUrlUpdateCallback((file, expanded) => {
-      updateUrl({ file, expanded, textFragment: null }); // Clear highlight when navigating via file tree
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
 
   // Set current wiki in Valtio store when directory changes
   useEffect(() => {
@@ -66,9 +62,9 @@ function HomeContent() {
     }
   }, [ctx.wikiName]);
 
-  // Restore state from URL on mount and when URL changes
+  // Load file from URL when URL changes
   useEffect(() => {
-    // Wait for tree to be ready (files will be loaded on-demand if needed)
+    // Wait for tree to be ready
     if (!ctx.directoryTree) {
       console.log('[HomeContent] Waiting for directoryTree...');
       return;
@@ -77,9 +73,9 @@ function HomeContent() {
     const filePath = getFileFromUrl();
     const expandedDirs = getExpandedFromUrl();
 
-    console.log('[HomeContent] Restoring from URL:', { filePath, expandedDirs: Array.from(expandedDirs), allFilesCount: ctx.allFiles.length });
+    console.log('[HomeContent] URL state:', { filePath, expandedDirs: Array.from(expandedDirs) });
 
-    // If there's a file path in URL, auto-expand parent directories
+    // Update expanded directories
     if (filePath) {
       const parentDirs = getParentDirs(filePath);
       const dirsToExpand = new Set([...expandedDirs, ...parentDirs]);
@@ -87,29 +83,23 @@ function HomeContent() {
       if (dirsToExpand.size > 0) {
         setExpandedDirsValtio(dirsToExpand);
       }
-
-      // Open the file - openFile will fetch from cache/disk as needed
-      if (ctx.currentFile?.path !== filePath) {
-        console.log('[HomeContent] Opening file from URL:', filePath);
-        setIsLoadingFromUrl(true);
-        ctx.openFile(filePath)
-          .then(() => {
-            setIsLoadingFromUrl(false);
-          })
-          .catch((error) => {
-            console.error('Failed to open file from URL:', error);
-            console.error('[HomeContent] File path from URL:', filePath);
-            console.error('[HomeContent] Current file:', ctx.currentFile?.path);
-            setIsLoadingFromUrl(false);
-          });
-      }
     } else if (expandedDirs.size > 0) {
-      // Only restore expanded directories if no file path
       setExpandedDirsValtio(expandedDirs);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.directoryTree, getFileFromUrl]); // React to tree and URL changes
 
+    // Load file content if path changed
+    if (filePath && ctx.currentFile?.path !== filePath) {
+      console.log('[HomeContent] Loading file from URL:', filePath);
+      setIsLoadingFromUrl(true);
+      
+      ctx.loadFile(filePath)
+        .then(() => setIsLoadingFromUrl(false))
+        .catch((error) => {
+          console.error('Failed to load file from URL:', error);
+          setIsLoadingFromUrl(false);
+        });
+    }
+  }, [ctx.directoryTree, ctx.loadFile, getFileFromUrl, getExpandedFromUrl]); // React to URL changes
   // Handle hash scrolling and text fragment highlighting
   useEffect(() => {
     if (!ctx.currentFile) return;
@@ -427,6 +417,7 @@ function HomeContent() {
               </div>
               <MarkdownRenderer 
                 content={ctx.currentFile.content} 
+                textFragment={textFragment}
                 themeConfig={{
                   colorTheme,
                   fontFamily,

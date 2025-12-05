@@ -148,7 +148,11 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   }, [query, performSearch]);
 
   const handleSelectResult = useCallback((result: ContentSearchResult | null) => {
-    if (!result) return;
+    console.log('[CommandPalette] handleSelectResult called with result:', result);
+    if (!result) {
+      console.log('[CommandPalette] No result, returning early');
+      return;
+    }
     
     // Extract first matched text from result for text fragment navigation
     let textFragment: string | null = null;
@@ -158,6 +162,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     if (firstMatch) {
       // Extract text from <mark>text</mark> pattern
       const markMatch = firstMatch.match(/<mark>(.*?)<\/mark>/);
+      console.log('[CommandPalette] Mark match:', markMatch);
       if (markMatch && markMatch[1]) {
         // Decode HTML entities
         textFragment = markMatch[1]
@@ -168,10 +173,15 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
           .replace(/&amp;/g, '&');
         
         console.log('[CommandPalette] Extracted text fragment:', textFragment);
+        console.log('[CommandPalette] Text fragment type:', typeof textFragment, 'length:', textFragment?.length);
+      } else {
+        console.log('[CommandPalette] No mark match found in snippet');
       }
+    } else {
+      console.log('[CommandPalette] No firstMatch found in result.match');
     }
     
-    console.log('[CommandPalette] Updating URL:', { file: result.path, textFragment });
+    console.log('[CommandPalette] About to call updateUrl with:', { file: result.path, textFragment });
     
     // Update URL with file path and text fragment
     // The page's URL restoration logic will handle opening the file
