@@ -54,7 +54,7 @@ function HomeContent() {
   // Set up URL update callback
   useEffect(() => {
     ctx.setUrlUpdateCallback((file, expanded) => {
-      updateUrl({ file, expanded });
+      updateUrl({ file, expanded, textFragment: null }); // Clear highlight when navigating via file tree
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount

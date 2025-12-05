@@ -38,8 +38,7 @@ function TocItem({ entry, level }: TocItemProps) {
       <a
         href={`#${entry.id}`}
         onClick={handleClick}
-        className="hover:underline text-sm leading-relaxed"
-        style={{ color: '#3b82f6' }}
+        className="text-blue-500 hover:underline text-sm leading-relaxed"
       >
         {entry.text}
       </a>
