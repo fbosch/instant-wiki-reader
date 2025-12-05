@@ -99,7 +99,9 @@ export function ThemeSettings() {
                   value={fontSize}
                   onChange={(e) => setFontSize(parseFloat(e.target.value))}
                   className="flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                  style={{ backgroundColor: theme.code }}
+                  style={{ 
+                    backgroundColor: colorTheme === 'black' ? '#262626' : theme.code 
+                  }}
                 />
                 <Type className="w-5 h-5 flex-shrink-0" style={{ color: theme.secondary }} />
               </div>
@@ -125,7 +127,9 @@ export function ThemeSettings() {
                   value={lineHeight}
                   onChange={(e) => setLineHeight(parseFloat(e.target.value))}
                   className="flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                  style={{ backgroundColor: theme.code }}
+                  style={{ 
+                    backgroundColor: colorTheme === 'black' ? '#262626' : theme.code 
+                  }}
                 />
                 <div className="flex flex-col gap-1 flex-shrink-0">
                   <div className="w-3 h-0.5 rounded" style={{ backgroundColor: theme.secondary }}></div>
@@ -194,7 +198,9 @@ export function ThemeSettings() {
                     setContentWidth(widths[value]);
                   }}
                   className="flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                  style={{ backgroundColor: theme.code }}
+                  style={{ 
+                    backgroundColor: colorTheme === 'black' ? '#262626' : theme.code 
+                  }}
                 />
                 <RectangleHorizontal className="w-5 h-5 flex-shrink-0" style={{ color: theme.secondary }} />
               </div>
@@ -209,7 +215,11 @@ export function ThemeSettings() {
                 <button
                   onClick={() => setCenterContent(!centerContent)}
                   className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
-                  style={{ backgroundColor: centerContent ? '#3b82f6' : theme.border }}
+                  style={{ 
+                    backgroundColor: centerContent 
+                      ? '#3b82f6' 
+                      : (colorTheme === 'black' ? '#262626' : theme.border)
+                  }}
                 >
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
