@@ -24,12 +24,8 @@ function TocItem({ entry, level }: TocItemProps) {
       // Update URL hash without triggering a page reload
       window.history.pushState(null, '', `#${entry.id}`);
       
-      // Scroll with smooth behavior
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      // Add a small offset to account for any sticky headers
-      setTimeout(() => {
-        window.scrollBy(0, -16);
-      }, 100);
+      // Scroll instantly without animation
+      element.scrollIntoView({ behavior: 'instant', block: 'start' });
     }
   };
 
@@ -76,8 +72,7 @@ export const TableOfContents = memo(function TableOfContents({
       if (element) {
         // Small delay to ensure the content is rendered
         setTimeout(() => {
-          element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          window.scrollBy(0, -16);
+          element.scrollIntoView({ behavior: 'instant', block: 'start' });
         }, 100);
       }
     }
