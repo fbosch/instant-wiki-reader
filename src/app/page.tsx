@@ -12,28 +12,14 @@ import { CommandPalette } from '@/components/command-palette';
 import { FileNameSearch } from '@/components/file-name-search';
 import { DevTools } from '@/components/dev-tools';
 import { ThemeSettings } from '@/components/theme-settings';
-import { FolderOpen, FileText, Type } from 'lucide-react';
+import { FolderOpen, FileText } from 'lucide-react';
 import { useUrlState } from '@/hooks/use-url-state';
 import { getParentDirs, formatFileName } from '@/lib/utils';
-import { useEffect, Suspense, useState, useCallback, useSyncExternalStore } from 'react';
+import { useEffect, Suspense, useState, useCallback } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import type { DirectoryNode } from '@/types';
 import { useSnapshot } from 'valtio';
 import { themeStore, colorThemes, contentWidthValues } from '@/store/theme-store';
-
-// Subscribe to hash changes for text fragment highlighting
-function subscribeToHashChanges(callback: () => void) {
-  window.addEventListener('hashchange', callback);
-  return () => window.removeEventListener('hashchange', callback);
-}
-
-function getHash() {
-  return window.location.hash;
-}
-
-function getServerHash() {
-  return '';
-}
 
 /**
  * Main content component that uses URL state.
@@ -48,12 +34,9 @@ function HomeContent() {
   const [hasScrolledToHash, setHasScrolledToHash] = useState(false);
   const [isLoadingFromUrl, setIsLoadingFromUrl] = useState(false);
   
-  // Subscribe to hash changes for reactive text fragment highlighting
-  const currentHash = useSyncExternalStore(subscribeToHashChanges, getHash, getServerHash);
-  
-  // Get text fragment from URL hash for passing to MarkdownRenderer
+  // Get text fragment (highlight) from URL query params
   const textFragment = getHighlightFromUrl();
-  console.log('[HomeContent] textFragment from URL:', textFragment, 'currentHash:', currentHash);
+  console.log('[HomeContent] textFragment from URL:', textFragment);
   
   // Get theme settings
   const { fontFamily, fontSize, lineHeight, colorTheme, contentWidth, centerContent } = useSnapshot(themeStore);
@@ -195,7 +178,7 @@ function HomeContent() {
     }, 100);
 
     return () => clearTimeout(timeoutId);
-  }, [ctx.currentFile, ctx.currentFile?.path, currentHash]); // Run when file or hash changes
+  }, [ctx.currentFile, ctx.currentFile?.path, textFragment]); // Run when file or highlight text changes
 
   // Keyboard shortcut for command palette (Cmd+Shift+F / Ctrl+Shift+F)
   useHotkeys('mod+shift+f', (e) => {

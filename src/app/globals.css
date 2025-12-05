@@ -52,20 +52,32 @@ body {
 }
 
 /* Manual text fragment highlighting (for client-side navigation) */
+/* Override Tailwind prose styles for mark */
+.prose mark,
+.prose mark.text-fragment-highlight {
+  /* Reset all default styles */
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  box-shadow: none;
+  outline: none;
+}
+
 mark.text-fragment-highlight {
-  background-color: rgb(217 119 6); /* amber-600 - dark, rich */
-  color: rgb(255 255 255); /* white text for maximum contrast */
-  padding: 0.125rem 0.25rem; /* px-1 py-0.5 */
-  border-radius: 0.25rem; /* rounded */
-  font-weight: 600; /* font-semibold */
-  border: 1px solid rgba(120, 53, 15, 0.6); /* amber-900/60 - very dark border */
+  /* Apply our custom styles - NO padding, just background color */
+  display: inline;
+  background-color: rgb(217 119 6) !important; /* amber-600 - dark, rich */
+  color: rgb(255 255 255) !important; /* white text for maximum contrast */
+  font-weight: 600 !important; /* font-semibold */
 }
 
 @media (prefers-color-scheme: dark) {
   mark.text-fragment-highlight {
-    background-color: rgba(245, 158, 11, 0.4); /* amber-500/40 */
-    color: rgb(254 243 199); /* amber-100 */
-    border-color: rgba(245, 158, 11, 0.7); /* amber-500/70 */
+    background-color: rgba(245, 158, 11, 0.4) !important; /* amber-500/40 */
+    color: rgb(254 243 199) !important; /* amber-100 */
   }
 }
 

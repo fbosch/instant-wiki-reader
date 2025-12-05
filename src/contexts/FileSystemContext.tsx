@@ -370,7 +370,8 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
     (path: string) => {
       console.log('[openFile] Updating URL to file:', path);
       // Just update the URL - page.tsx will observe and load the file
-      updateUrl({ file: path });
+      // Clear any text fragment highlight when navigating to a new file
+      updateUrl({ file: path, textFragment: null });
     },
     [updateUrl]
   );

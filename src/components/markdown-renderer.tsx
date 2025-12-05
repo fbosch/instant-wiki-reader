@@ -3,20 +3,18 @@
 import {
   memo,
   useState,
-  useEffect,
   useCallback,
   createElement,
   useMemo,
   useRef,
+  useEffect,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkWikiLink from "remark-wiki-link";
 import rehypeRaw from "rehype-raw";
 import rehypeHighlight from "rehype-highlight";
-import { visit } from "unist-util-visit";
-import type { Element, ElementContent, Root } from "hast";
-import type { Plugin, PluggableList } from "unified";
+import type { PluggableList } from "unified";
 import { match, P } from "ts-pattern";
 import { cn, extractAzureDevOpsPath } from "@/lib/utils";
 import { useFileSystem } from "@/contexts/FileSystemContext";
@@ -610,61 +608,6 @@ function preprocessMarkdown(
 }
 
 /**
- * Highlight text fragment in markdown content
- * Wraps matching text with <mark> tags for visual highlighting
- */
-function highlightTextFragment(textFragment: string): Plugin<[], Root> {
-  return () => {
-    return (tree) => {
-      const escapedFragment = textFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(escapedFragment, 'gi');
-
-      visit(tree, 'text', (node, index, parent) => {
-        if (!node.value || !regex.test(node.value) || !parent || typeof index !== 'number') {
-          regex.lastIndex = 0;
-          return;
-        }
-
-        regex.lastIndex = 0;
-        const segments = node.value.split(regex);
-        const matches = node.value.match(regex);
-
-        if (!matches) {
-          return;
-        }
-
-        const newChildren: ElementContent[] = [];
-
-        segments.forEach((segment, segmentIndex) => {
-          if (segment) {
-            newChildren.push({
-              type: 'text',
-              value: segment,
-            });
-          }
-
-          if (segmentIndex < segments.length - 1) {
-            newChildren.push({
-              type: 'element',
-              tagName: 'mark',
-              properties: { className: ['text-fragment-highlight'] },
-              children: [
-                {
-                  type: 'text',
-                  value: matches[segmentIndex] ?? '',
-                },
-              ],
-            });
-          }
-        });
-
-        parent.children.splice(index, 1, ...newChildren);
-      });
-    };
-  };
-}
-
-/**
  * Generates an ID from heading text for anchor linking.
  * Converts to lowercase, replaces special chars and spaces with hyphens.
 
@@ -723,10 +666,6 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
 }: MarkdownRendererProps) {
   const { azureDevOpsContext } = useFileSystem();
   const { getHighlightFromUrl } = useUrlState();
-  const highlightRef = useRef<HTMLDivElement | null>(null);
-  
-  // Use prop if provided, otherwise fallback to URL
-  // This ensures the component re-renders when the hash changes
   const textFragmentFromUrl = getHighlightFromUrl();
   const textFragment = textFragmentProp !== undefined ? textFragmentProp : textFragmentFromUrl;
   
@@ -764,8 +703,20 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   // Preprocess content to fix common markdown issues and add Azure DevOps links
   let processedContent = preprocessMarkdown(content, azureDevOpsBaseUrl);
   
-  // Apply text fragment highlighting FIRST (before escaping HTML tags)
-  // This ensures the search can find matches in the original content
+  // Apply text fragment highlighting by wrapping matches with <mark> tags
+  if (textFragment) {
+    console.log('[MarkdownRenderer] Applying text fragment highlighting for:', textFragment);
+    
+    // Escape special regex characters
+    const escapedFragment = textFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escapedFragment})`, 'gi');
+    
+    // Wrap matches with mark tags
+    // Use a placeholder to avoid double-wrapping if rehype plugins run
+    processedContent = processedContent.replace(regex, '<mark class="text-fragment-highlight">$1</mark>');
+    
+    console.log('[MarkdownRenderer] Highlighted', (processedContent.match(regex) || []).length, 'occurrences');
+  }
   
   // Escape custom/unknown HTML tags that React doesn't recognize
 
@@ -803,10 +754,11 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
     "[MarkdownRenderer] Processed sample (first 200 chars):",
     processedContent.substring(0, 200),
   );
-
+ 
   return (
     <div
       className={cn(
+
         "prose prose-slate dark:prose-invert max-w-none",
         className,
       )}
@@ -826,7 +778,6 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
         rehypePlugins={[
           rehypeRaw,
           rehypeHighlight,
-          textFragment ? highlightTextFragment(textFragment) : undefined,
         ].filter(Boolean) as PluggableList}
 
 
