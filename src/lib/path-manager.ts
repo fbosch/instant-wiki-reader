@@ -107,7 +107,7 @@ function detectCommonPrefix(files: readonly FileWithPath[]): string | null {
 
 /**
  * Finds a file by path with encoding/normalization fallbacks
- * Handles URL encoding/decoding and Unicode normalization
+ * Uses fast O(1) path index if available, falls back to O(n) search
  * Automatically prepends common root prefix if search path is missing it
  * 
  * @param files - Array of files
@@ -115,6 +115,61 @@ function detectCommonPrefix(files: readonly FileWithPath[]): string | null {
  * @returns File object or undefined if not found
  */
 export function getFileByDisplayPath<T extends FileWithPath>(files: readonly T[], searchPath: string): T | undefined {
+  // OPTIMIZATION: Try O(1) path index lookup first
+  try {
+    const { getFilePathIndex } = require('@/store/file-system-store');
+    const pathIndex = getFilePathIndex();
+    
+    if (pathIndex && pathIndex.size > 0) {
+      console.log('[getFileByDisplayPath] Using path index (size:', pathIndex.size, ') for:', searchPath);
+      
+      // Try direct lookup
+      let file = pathIndex.get(searchPath);
+      if (file) {
+        console.log('[getFileByDisplayPath] ✓ Found via direct index lookup');
+        return file as T;
+      }
+      
+      // Try with common prefix added
+      const firstFile = files[0];
+      if (firstFile) {
+        const firstPath = getFilePath(firstFile);
+        const commonPrefix = firstPath.split('/')[0];
+        const withPrefix = `${commonPrefix}/${searchPath}`;
+        file = pathIndex.get(withPrefix);
+        if (file) {
+          console.log('[getFileByDisplayPath] ✓ Found via index lookup with prefix:', withPrefix);
+          return file as T;
+        }
+      }
+      
+      // Try normalized variations
+      try {
+        file = pathIndex.get(searchPath.normalize('NFC'));
+        if (file) {
+          console.log('[getFileByDisplayPath] ✓ Found via NFC normalized index lookup');
+          return file as T;
+        }
+        
+        file = pathIndex.get(searchPath.normalize('NFD'));
+        if (file) {
+          console.log('[getFileByDisplayPath] ✓ Found via NFD normalized index lookup');
+          return file as T;
+        }
+      } catch (e) {
+        // Ignore normalization errors
+      }
+      
+      console.log('[getFileByDisplayPath] Not found in path index, falling back to array search');
+    }
+  } catch (e) {
+    // Store not available or error, fall back to array search
+    console.log('[getFileByDisplayPath] Path index not available, using array search');
+  }
+  
+  // FALLBACK: O(n) array search with encoding variations
+  console.log('[getFileByDisplayPath] Using slow O(n) array search for:', searchPath);
+  
   // Detect common prefix and normalize search path if needed
   const commonPrefix = detectCommonPrefix(files);
   const pathsToTry: string[] = [searchPath];
@@ -173,6 +228,34 @@ export function getFileByDisplayPath<T extends FileWithPath>(files: readonly T[]
     console.error('[PathManager] File not found:', searchPath);
     if (commonPrefix) {
       console.error('[PathManager] Also tried with prefix:', `${commonPrefix}/${searchPath}`);
+    }
+    
+    // Try to find similar paths for debugging
+    try {
+      const { getFilePathIndex } = require('@/store/file-system-store');
+      const pathIndex = getFilePathIndex();
+      if (pathIndex && pathIndex.size > 0) {
+        const allPaths = Array.from(pathIndex.keys()) as string[];
+        
+        // Find paths with similar filenames
+        const filename = searchPath.split('/').pop() || '';
+        const similarPaths = allPaths.filter(p => p.includes(filename)).slice(0, 5);
+        
+        if (similarPaths.length > 0) {
+          console.error('[PathManager] Similar paths found:', similarPaths);
+        }
+        
+        // Also check for paths containing the directory
+        const dir = searchPath.split('/').slice(0, -1).join('/');
+        if (dir) {
+          const sameDirPaths = allPaths.filter(p => p.includes(dir)).slice(0, 5);
+          if (sameDirPaths.length > 0) {
+            console.error('[PathManager] Paths in same directory:', sameDirPaths);
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore errors in debug code
     }
   }
   

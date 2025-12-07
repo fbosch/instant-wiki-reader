@@ -52,11 +52,22 @@ function resolveImagePath(imageSrc: string, currentFilePath: string): string {
 
   const currentDir = currentFilePath.split("/").slice(0, -1).join("/");
 
+  // Helper to safely decode URI components
+  const safeDecode = (str: string): string => {
+    try {
+      return decodeURIComponent(str);
+    } catch {
+      return str; // Return as-is if decoding fails
+    }
+  };
+
   // Handle different relative path formats
   if (imageSrc.startsWith("./")) {
+    const withoutPrefix = imageSrc.slice(2);
+    const decoded = safeDecode(withoutPrefix);
     const resolved = currentDir
-      ? `${currentDir}/${imageSrc.slice(2)}`
-      : imageSrc.slice(2);
+      ? `${currentDir}/${decoded}`
+      : decoded;
     console.log('[resolveImagePath] Relative path (./):', imageSrc, '→', resolved);
     return resolved;
   } else if (imageSrc.startsWith("../")) {
@@ -69,21 +80,25 @@ function resolveImagePath(imageSrc: string, currentFilePath: string): string {
       upCount++;
     }
 
+    // Decode each remaining path part
+    const remaining = srcParts.slice(upCount).map(part => safeDecode(part));
+    
     // Remove directories and join with remaining path
     const newParts = parts.slice(0, Math.max(0, parts.length - upCount));
-    const remaining = srcParts.slice(upCount);
     const resolved = [...newParts, ...remaining].filter(Boolean).join("/");
     console.log('[resolveImagePath] Parent path (../):', imageSrc, '→', resolved);
     return resolved;
   } else if (imageSrc.startsWith("/")) {
-    // Absolute path from wiki root - strip leading slash
+    // Absolute path from wiki root - strip leading slash and decode
     // getFileByDisplayPath will add the common prefix if needed
-    const resolved = imageSrc.slice(1);
+    const withoutSlash = imageSrc.slice(1);
+    const resolved = safeDecode(withoutSlash);
     console.log('[resolveImagePath] Absolute path (/):', imageSrc, '→', resolved);
     return resolved;
   } else {
-    // Relative to current directory
-    const resolved = currentDir ? `${currentDir}/${imageSrc}` : imageSrc;
+    // Relative to current directory - decode the path
+    const decoded = safeDecode(imageSrc);
+    const resolved = currentDir ? `${currentDir}/${decoded}` : decoded;
     console.log('[resolveImagePath] Relative path:', imageSrc, '→', resolved);
     return resolved;
   }
@@ -91,6 +106,9 @@ function resolveImagePath(imageSrc: string, currentFilePath: string): string {
 
 // Cache for blob URLs to avoid recreating them
 const blobCache = new Map<string, string>();
+
+// Cache for File objects to avoid re-fetching from file system
+const fileCache = new Map<string, File | Blob>();
 
 /**
  * Image component that loads images from the file system on-demand
@@ -153,58 +171,55 @@ function MarkdownImage({
       try {
         let file: File | Blob | undefined;
 
-        // Try File System Access API first if available
-        if (rootHandle) {
-          try {
-            // Chrome/Edge: Use File System Access API
-            const pathParts = resolvedPath.split("/");
-            let currentHandle: FileSystemDirectoryHandle = rootHandle;
+        // OPTIMIZATION: Try fast sources first, slow sources last
+        // 1. Check file object cache (fastest)
+        file = fileCache.get(resolvedPath);
+        if (file) {
+          console.log('[MarkdownImage] ✓ Found in file cache:', resolvedPath);
+        }
 
-            // Navigate through directories (decode each part for file system access)
-            for (let i = 0; i < pathParts.length - 1; i++) {
-              const decodedPart = decodeURIComponent(pathParts[i]);
-              currentHandle =
-                await currentHandle.getDirectoryHandle(decodedPart);
-            }
-
-            // Get the file (decode the filename)
-            const fileName = pathParts[pathParts.length - 1];
-            const decodedFileName = decodeURIComponent(fileName);
-            const fileHandle =
-              await currentHandle.getFileHandle(decodedFileName);
-            file = await fileHandle.getFile();
-          } catch (fsError) {
-            // File System Access API failed, fall back to allFiles
-            console.warn(
-              "[MarkdownImage] File System Access failed, trying allFiles fallback:",
-              fsError,
-            );
-            file = getFileByDisplayPath(allFiles, resolvedPath);
-          }
-        } else {
-          // Firefox/Safari or cached mode: Try allFiles first
-          console.log('[MarkdownImage] Looking for file:', resolvedPath, 'in', allFiles.length, 'files');
+        // 2. Try allFiles array (fast - in-memory lookup)
+        if (!file && allFiles.length > 0) {
+          console.log('[MarkdownImage] Trying allFiles...', resolvedPath);
           file = getFileByDisplayPath(allFiles, resolvedPath);
-          if (!file) {
-            console.warn('[MarkdownImage] File not found by getFileByDisplayPath:', resolvedPath);
+          if (file) {
+            console.log('[MarkdownImage] ✓ Found in allFiles:', resolvedPath);
+            fileCache.set(resolvedPath, file); // Cache for next time
           }
         }
 
-        // If still not found, try IndexedDB cache (for Firefox cached mode or when allFiles is empty)
+        // 3. Try IndexedDB cache (medium speed - single async lookup)
         if (!file) {
-          console.log(
-            "[MarkdownImage] Not found in allFiles, trying IndexedDB cache for:",
-            resolvedPath,
-          );
+          console.log('[MarkdownImage] Trying IndexedDB cache...', resolvedPath);
           const { getFileFromCache } = await import("@/lib/file-system");
           const cachedFile = await getFileFromCache(resolvedPath);
-
           if (cachedFile) {
-            console.log(
-              "[MarkdownImage] Loaded from IndexedDB cache:",
-              resolvedPath,
-            );
+            console.log('[MarkdownImage] ✓ Found in IndexedDB:', resolvedPath);
             file = cachedFile;
+            fileCache.set(resolvedPath, file); // Cache for next time
+          }
+        }
+
+        // 4. LAST RESORT: Try File System Access API (slowest - multiple async operations)
+        if (!file && rootHandle) {
+          console.log('[MarkdownImage] Trying File System Access API...', resolvedPath);
+          try {
+            const pathParts = resolvedPath.split("/");
+            let currentHandle: FileSystemDirectoryHandle = rootHandle;
+
+            // Navigate through directories (path is already decoded by resolveImagePath)
+            for (let i = 0; i < pathParts.length - 1; i++) {
+              currentHandle = await currentHandle.getDirectoryHandle(pathParts[i]);
+            }
+
+            // Get the file (path is already decoded)
+            const fileName = pathParts[pathParts.length - 1];
+            const fileHandle = await currentHandle.getFileHandle(fileName);
+            file = await fileHandle.getFile();
+            console.log('[MarkdownImage] ✓ Found via File System Access API:', resolvedPath);
+            fileCache.set(resolvedPath, file); // Cache for next time
+          } catch (fsError) {
+            console.warn('[MarkdownImage] File System Access failed:', fsError);
           }
         }
 

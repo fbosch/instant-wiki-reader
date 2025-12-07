@@ -4,7 +4,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useFileSystem } from '@/contexts/FileSystemContext';
-import { addExpandedDirs } from '@/store/ui-store';
+import { addExpandedDirs, toggleExpandDir, uiStore } from '@/store/ui-store';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { TableOfContents } from '@/components/table-of-contents';
 import { FileTree } from '@/components/file-tree';
@@ -33,6 +33,8 @@ function HomeContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [hasScrolledToHash, setHasScrolledToHash] = useState(false);
   const [isLoadingFromUrl, setIsLoadingFromUrl] = useState(false);
+  const [keyboardSelectedPath, setKeyboardSelectedPath] = useState<string>('');
+  const [flatFileList, setFlatFileList] = useState<string[]>([]);
   
   // Get text fragment (highlight) from URL query params
   const textFragment = getHighlightFromUrl();
@@ -40,6 +42,9 @@ function HomeContent() {
   
   // Get theme settings
   const { fontFamily, fontSize, lineHeight, colorTheme, contentWidth, centerContent } = useSnapshot(themeStore);
+  
+  // Get UI state reactively
+  const uiState = useSnapshot(uiStore);
 
   // Load file from URL when URL changes
   useEffect(() => {
@@ -152,6 +157,168 @@ function HomeContent() {
     e.preventDefault();
     setIsCommandPaletteOpen(true);
   }, { enableOnFormTags: true });
+
+  // Helper function to flatten directory tree into a list of paths (files + dirs)
+  // Respects expanded/collapsed state to only show visible items
+  const flattenTree = useCallback((node: DirectoryNode | null, expandedDirs?: Set<string>): string[] => {
+    if (!node) return [];
+    
+    const paths: string[] = [];
+    
+    const traverse = (n: DirectoryNode) => {
+      // Add both files and directories to the list
+      paths.push(n.path);
+      
+      // Only traverse children if directory is expanded
+      if (n.type === 'dir' && n.children) {
+        const isExpanded = expandedDirs?.has(n.path) || (searchQuery && n.isExpanded === true);
+        if (isExpanded) {
+          n.children.forEach(child => traverse(child));
+        }
+      }
+    };
+    
+    // Start with the root's children
+    if (node.children) {
+      node.children.forEach(child => traverse(child));
+    }
+    
+    return paths;
+  }, [searchQuery]);
+
+  // Update flat file list when filtered tree or directory tree changes
+  useEffect(() => {
+    const treeToFlatten = filteredTree || ctx.directoryTree;
+    
+    // Get expanded dirs from ui-store for current wiki (reactive)
+    const { currentWiki, wikiStates } = uiState;
+    const expandedDirs = currentWiki && wikiStates.has(currentWiki)
+      ? wikiStates.get(currentWiki)!.expandedDirs
+      : new Set<string>();
+    
+    const paths = flattenTree(treeToFlatten as DirectoryNode | null, expandedDirs);
+    setFlatFileList(paths);
+    
+    // Reset keyboard selection when tree changes
+    if (paths.length > 0 && !paths.includes(keyboardSelectedPath)) {
+      setKeyboardSelectedPath(paths[0]);
+    }
+  }, [filteredTree, ctx.directoryTree, flattenTree, keyboardSelectedPath, uiState.currentWiki, uiState.wikiStates]);
+
+  // Handle keyboard navigation
+  const handleNavigate = useCallback((direction: 'up' | 'down') => {
+    if (flatFileList.length === 0) return;
+    
+    const currentIndex = flatFileList.indexOf(keyboardSelectedPath);
+    let nextIndex: number;
+    
+    if (direction === 'down') {
+      nextIndex = currentIndex < flatFileList.length - 1 ? currentIndex + 1 : 0;
+    } else {
+      nextIndex = currentIndex > 0 ? currentIndex - 1 : flatFileList.length - 1;
+    }
+    
+    setKeyboardSelectedPath(flatFileList[nextIndex]);
+  }, [flatFileList, keyboardSelectedPath]);
+
+  // Handle Enter key to open selected file or toggle directory
+  const handleSelectCurrent = useCallback(() => {
+    if (!keyboardSelectedPath) return;
+    
+    // Find the node to determine if it's a file or directory
+    const findNode = (node: DirectoryNode | null, path: string): DirectoryNode | null => {
+      if (!node) return null;
+      
+      const search = (n: DirectoryNode): DirectoryNode | null => {
+        if (n.path === path) return n;
+        
+        if (n.type === 'dir' && n.children) {
+          for (const child of n.children) {
+            const found = search(child);
+            if (found) return found;
+          }
+        }
+        
+        return null;
+      };
+      
+      if (node.children) {
+        for (const child of node.children) {
+          const found = search(child);
+          if (found) return found;
+        }
+      }
+      
+      return null;
+    };
+    
+    const treeToSearch = filteredTree || ctx.directoryTree;
+    const selectedNode = findNode(treeToSearch as DirectoryNode | null, keyboardSelectedPath);
+    
+    if (selectedNode) {
+      if (selectedNode.type === 'file') {
+        ctx.openFile(keyboardSelectedPath);
+      } else if (selectedNode.type === 'dir') {
+        // Toggle directory expansion
+        toggleExpandDir(keyboardSelectedPath);
+        
+        // If directory has an index file, open it
+        if (selectedNode.indexFile) {
+          ctx.openFile(selectedNode.indexFile);
+        }
+      }
+    }
+  }, [keyboardSelectedPath, ctx, filteredTree]);
+
+  // Handle left/right arrows for expand/collapse
+  const handleExpandCollapse = useCallback((action: 'expand' | 'collapse') => {
+    if (!keyboardSelectedPath) return;
+    
+    // Find the node to determine if it's a directory
+    const findNode = (node: DirectoryNode | null, path: string): DirectoryNode | null => {
+      if (!node) return null;
+      
+      const search = (n: DirectoryNode): DirectoryNode | null => {
+        if (n.path === path) return n;
+        
+        if (n.type === 'dir' && n.children) {
+          for (const child of n.children) {
+            const found = search(child);
+            if (found) return found;
+          }
+        }
+        
+        return null;
+      };
+      
+      if (node.children) {
+        for (const child of node.children) {
+          const found = search(child);
+          if (found) return found;
+        }
+      }
+      
+      return null;
+    };
+    
+    const treeToSearch = filteredTree || ctx.directoryTree;
+    const selectedNode = findNode(treeToSearch as DirectoryNode | null, keyboardSelectedPath);
+    
+    if (selectedNode && selectedNode.type === 'dir') {
+      const { currentWiki, wikiStates } = uiStore;
+      const expandedDirs = currentWiki && wikiStates.has(currentWiki)
+        ? wikiStates.get(currentWiki)!.expandedDirs
+        : new Set<string>();
+      
+      const isExpanded = expandedDirs.has(keyboardSelectedPath);
+      
+      if (action === 'expand' && !isExpanded) {
+        toggleExpandDir(keyboardSelectedPath);
+      } else if (action === 'collapse' && isExpanded) {
+        toggleExpandDir(keyboardSelectedPath);
+      }
+    }
+  }, [keyboardSelectedPath, filteredTree]);
 
   const handleFilterTree = useCallback((tree: DirectoryNode | null, query: string) => {
     setFilteredTree(tree);
@@ -323,7 +490,13 @@ function HomeContent() {
           </div>
           
           {/* Filename search bar */}
-          <FileNameSearch tree={ctx.directoryTree as DirectoryNode | null} onFilter={handleFilterTree} />
+          <FileNameSearch 
+            tree={ctx.directoryTree as DirectoryNode | null} 
+            onFilter={handleFilterTree}
+            onNavigate={handleNavigate}
+            onSelectCurrent={handleSelectCurrent}
+            onExpandCollapse={handleExpandCollapse}
+          />
           
           {/* Hint for content search */}
           <div className="mt-2 text-xs text-center" style={{ color: theme.secondary }}>
@@ -335,7 +508,8 @@ function HomeContent() {
           <FileTree 
             key={searchQuery || 'no-search'} 
             tree={(filteredTree || ctx.directoryTree) as DirectoryNode | null} 
-            searchQuery={searchQuery} 
+            searchQuery={searchQuery}
+            keyboardSelectedPath={keyboardSelectedPath}
           />
         </div>
       </aside>

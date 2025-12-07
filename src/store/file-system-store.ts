@@ -39,12 +39,20 @@ export interface FileSystemStore {
 // Maps file paths for quick existence checks and metadata lookups
 let globalFilePathMetadata = new Map<string, { path: string; name: string }>();
 
+// Fast O(1) file lookup map - stores all path variations
+// Multiple keys can point to the same File (for different encodings/normalizations)
+let globalFilePathIndex = new Map<string, File>();
+
 // WeakMap to store decoded paths for File objects
 // This avoids the issue of File.webkitRelativePath containing URL-encoded characters
 let globalFileToDecodedPath = new WeakMap<File, string>();
 
 export function getFilePathMetadata(): Map<string, { path: string; name: string }> {
   return globalFilePathMetadata;
+}
+
+export function getFilePathIndex(): Map<string, File> {
+  return globalFilePathIndex;
 }
 
 export function hasFilePath(path: string): boolean {
@@ -149,34 +157,118 @@ export function setAllFiles(files: File[]) {
     fileSystemStore.allFiles = ref(files) as File[];
     console.log('[setAllFiles] Set allFiles');
     
-    // Build metadata map for path lookups (not storing full File objects)
-    // Store it in module-level variable (not in Valtio) to avoid proxy issues with Maps
+    // Build metadata map and path index for fast O(1) lookups
     globalFilePathMetadata = new Map();
+    globalFilePathIndex = new Map();
     globalFileToDecodedPath = new WeakMap();
-    console.log('[setAllFiles] Created metadata map and WeakMap');
+    console.log('[setAllFiles] Created maps');
     
     // Import getFilePath
     const { getFilePath } = require('@/lib/path-manager');
-    console.log('[setAllFiles] Imported getFilePath');
+    
+    // Helper to safely add path variant to index
+    const addPathVariant = (pathVariant: string, file: File) => {
+      if (pathVariant && !globalFilePathIndex.has(pathVariant)) {
+        globalFilePathIndex.set(pathVariant, file);
+      }
+    };
+    
+    // Detect common prefix once for all files
+    let commonPrefix: string | null = null;
+    if (files.length > 0) {
+      const firstPath = getFilePath(files[0]);
+      const firstSegment = firstPath.split('/')[0];
+      const allSamePrefix = files.every(f => getFilePath(f).startsWith(firstSegment + '/') || getFilePath(f) === firstSegment);
+      const hasNestedPaths = files.some(f => getFilePath(f).includes('/'));
+      commonPrefix = allSamePrefix && hasNestedPaths ? firstSegment : null;
+    }
     
     for (const file of files) {
       const rawPath = getFilePath(file);
-      // Decode the path to handle URL-encoded characters (e.g., %2D -> -)
-      // This ensures consistent path storage regardless of how File objects encode their paths
+      
+      // Decode the path to handle URL-encoded characters
       let decodedPath = rawPath;
       try {
         decodedPath = decodeURIComponent(rawPath);
       } catch (e) {
-        // If decoding fails, use the raw path
         console.warn('[setAllFiles] Failed to decode path:', rawPath, e);
       }
+      
+      // Store metadata
       globalFilePathMetadata.set(decodedPath, { path: decodedPath, name: file.name });
       globalFileToDecodedPath.set(file, decodedPath);
+      
+      // Build comprehensive path index with all variations for O(1) lookup
+      // 1. Decoded path (primary)
+      addPathVariant(decodedPath, file);
+      
+      // 2. Raw path (if different)
+      if (rawPath !== decodedPath) {
+        addPathVariant(rawPath, file);
+      }
+      
+      // 3. Each path segment decoded separately (for partial URL encoding)
+      try {
+        const segments = decodedPath.split('/');
+        const partiallyDecoded = segments.map((s: string) => {
+          try {
+            return decodeURIComponent(s);
+          } catch {
+            return s;
+          }
+        }).join('/');
+        if (partiallyDecoded !== decodedPath) {
+          addPathVariant(partiallyDecoded, file);
+        }
+      } catch (e) {
+        // Ignore
+      }
+      
+      // 4. Unicode normalized variations
+      try {
+        const normalizedNFC = decodedPath.normalize('NFC');
+        const normalizedNFD = decodedPath.normalize('NFD');
+        addPathVariant(normalizedNFC, file);
+        addPathVariant(normalizedNFD, file);
+      } catch (e) {
+        // Ignore normalization errors
+      }
+      
+      // 5. Without common prefix (if applicable)
+      if (commonPrefix && decodedPath.startsWith(commonPrefix + '/')) {
+        const withoutPrefix = decodedPath.slice(commonPrefix.length + 1);
+        addPathVariant(withoutPrefix, file);
+        
+        // Also add normalized and segment-decoded variants without prefix
+        try {
+          addPathVariant(withoutPrefix.normalize('NFC'), file);
+          addPathVariant(withoutPrefix.normalize('NFD'), file);
+          
+          // Segment-decode without prefix
+          const segments = withoutPrefix.split('/');
+          const partiallyDecoded = segments.map((s: string) => {
+            try {
+              return decodeURIComponent(s);
+            } catch {
+              return s;
+            }
+          }).join('/');
+          if (partiallyDecoded !== withoutPrefix) {
+            addPathVariant(partiallyDecoded, file);
+          }
+        } catch (e) {
+          // Ignore
+        }
+      }
     }
     
-    console.log('[setAllFiles] Built metadata map with', globalFilePathMetadata.size, 'entries (took', (performance.now() - startTime).toFixed(2), 'ms)');
-    console.log('[setAllFiles] First 5 keys:', Array.from(globalFilePathMetadata.keys()).slice(0, 5));
-    console.log('[setAllFiles] DONE - globalFilePathMetadata.size:', globalFilePathMetadata.size);
+    console.log('[setAllFiles] Built path index with', globalFilePathIndex.size, 'path variants for', files.length, 'files (took', (performance.now() - startTime).toFixed(2), 'ms)');
+    console.log('[setAllFiles] Common prefix:', commonPrefix);
+    console.log('[setAllFiles] Sample paths:', Array.from(globalFilePathIndex.keys()).slice(0, 10));
+    
+    // Show paths containing "attachments" for debugging
+    const attachmentPaths = Array.from(globalFilePathIndex.keys()).filter(p => p.includes('attachments'));
+    console.log('[setAllFiles] Attachment paths (first 10):', attachmentPaths.slice(0, 10));
   } catch (error) {
     console.error('[setAllFiles] ERROR:', error);
     throw error;

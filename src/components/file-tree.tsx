@@ -145,6 +145,7 @@ function FileTreeItem({
   node, 
   level = 0,
   searchQuery = '',
+  keyboardSelectedPath,
 }: {
   item: DirectoryNode;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -153,6 +154,7 @@ function FileTreeItem({
   node: any;
   level?: number;
   searchQuery?: string;
+  keyboardSelectedPath?: string;
 }) {
   const { openFile, currentFile } = useFileSystem();
   const { currentWiki, wikiStates } = useSnapshot(uiStore);
@@ -173,6 +175,7 @@ function FileTreeItem({
   const isExpanded = expandedDirs.has(node.key) || (searchQuery && item.isExpanded === true);
   const hasChildren = node.children && node.children.length > 0;
   const isCurrentFile = currentFile?.path === item.path;
+  const isKeyboardSelected = keyboardSelectedPath === item.path;
   
   // Debug logging for path comparison
   if (currentFile && item.type === 'file' && item.path.includes(currentFile.path.split('/').pop() || '')) {
@@ -228,6 +231,17 @@ function FileTreeItem({
     }
   }, [isCurrentFile]);
 
+  // Scroll keyboard-selected item into view
+  React.useEffect(() => {
+    if (isKeyboardSelected && ref.current) {
+      ref.current.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'nearest',
+        inline: 'nearest'
+      });
+    }
+  }, [isKeyboardSelected]);
+
   return (
     <li>
       <div
@@ -238,22 +252,26 @@ function FileTreeItem({
           paddingLeft: 8 + level * 16,
           backgroundColor: isCurrentFile 
             ? '#2563eb' 
+            : isKeyboardSelected
+            ? (colorTheme === 'dark' || colorTheme === 'black' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)')
             : isSelected 
             ? (colorTheme === 'dark' || colorTheme === 'black' ? 'rgba(37, 99, 235, 0.2)' : 'rgba(37, 99, 235, 0.1)')
             : 'transparent',
           color: isCurrentFile 
             ? '#ffffff' 
             : theme.text,
+          outline: isKeyboardSelected ? '2px solid rgba(59, 130, 246, 0.5)' : 'none',
+          outlineOffset: '-2px',
         }}
         onMouseEnter={(e) => {
-          if (!isCurrentFile && !isSelected) {
+          if (!isCurrentFile && !isSelected && !isKeyboardSelected) {
             e.currentTarget.style.backgroundColor = colorTheme === 'dark' || colorTheme === 'black' 
               ? 'rgba(255, 255, 255, 0.05)' 
               : 'rgba(0, 0, 0, 0.05)';
           }
         }}
         onMouseLeave={(e) => {
-          if (!isCurrentFile && !isSelected) {
+          if (!isCurrentFile && !isSelected && !isKeyboardSelected) {
             e.currentTarget.style.backgroundColor = 'transparent';
           }
         }}
@@ -297,6 +315,7 @@ function FileTreeItem({
               node={childNode} 
               level={level + 1}
               searchQuery={searchQuery}
+              keyboardSelectedPath={keyboardSelectedPath}
             />
           ))}
         </ul>
@@ -305,7 +324,7 @@ function FileTreeItem({
   );
 }
 
-export function FileTree({ tree: treeOverride, searchQuery = '' }: { tree?: DirectoryNode | null; searchQuery?: string } = {}) {
+export function FileTree({ tree: treeOverride, searchQuery = '', keyboardSelectedPath }: { tree?: DirectoryNode | null; searchQuery?: string; keyboardSelectedPath?: string } = {}) {
   const { directoryTree, selectedNode } = useFileSystem();
   
   // Use override tree if provided, otherwise use context tree
@@ -336,6 +355,7 @@ export function FileTree({ tree: treeOverride, searchQuery = '' }: { tree?: Dire
             tree={tree} 
             node={node}
             searchQuery={searchQuery}
+            keyboardSelectedPath={keyboardSelectedPath}
           />
         ))}
       </ul>

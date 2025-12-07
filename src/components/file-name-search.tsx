@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useHotkeys } from 'react-hotkeys-hook';
 import { Search, X } from 'lucide-react';
 import { useSnapshot } from 'valtio';
 import { themeStore, colorThemes } from '@/store/theme-store';
@@ -9,6 +10,9 @@ import type { DirectoryNode } from '@/types';
 interface FileNameSearchProps {
   tree: DirectoryNode | null;
   onFilter: (filteredTree: DirectoryNode | null, searchQuery: string) => void;
+  onNavigate?: (direction: 'up' | 'down') => void;
+  onSelectCurrent?: () => void;
+  onExpandCollapse?: (action: 'expand' | 'collapse') => void;
 }
 
 /**
@@ -66,12 +70,13 @@ function filterTree(node: DirectoryNode, query: string): DirectoryNode | null {
 
 /**
  * Filename search bar for filtering file tree in sidebar
- * Uses useDeferredValue for non-blocking updates
+ * Supports keyboard navigation with arrow keys and vim bindings
  */
-export function FileNameSearch({ tree, onFilter }: FileNameSearchProps) {
+export function FileNameSearch({ tree, onFilter, onNavigate, onSelectCurrent, onExpandCollapse }: FileNameSearchProps) {
   const [query, setQuery] = useState('');
   const { colorTheme } = useSnapshot(themeStore);
   const theme = colorThemes[colorTheme];
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newQuery = e.target.value;
@@ -103,11 +108,62 @@ export function FileNameSearch({ tree, onFilter }: FileNameSearchProps) {
     onFilter(null, '');
   };
 
+  // Arrow key navigation - only when input is focused
+  useHotkeys('down', (e) => {
+    e.preventDefault();
+    onNavigate?.('down');
+  }, { enableOnFormTags: ['INPUT'], enabled: true }, [onNavigate]);
+
+  useHotkeys('up', (e) => {
+    e.preventDefault();
+    onNavigate?.('up');
+  }, { enableOnFormTags: ['INPUT'], enabled: true }, [onNavigate]);
+
+  // Left/Right arrows for expand/collapse
+  useHotkeys('left', (e) => {
+    e.preventDefault();
+    onExpandCollapse?.('collapse');
+  }, { enableOnFormTags: ['INPUT'], enabled: true }, [onExpandCollapse]);
+
+  useHotkeys('right', (e) => {
+    e.preventDefault();
+    onExpandCollapse?.('expand');
+  }, { enableOnFormTags: ['INPUT'], enabled: true }, [onExpandCollapse]);
+
+  // Vim bindings - Ctrl+J (down) and Ctrl+K (up)
+  useHotkeys('ctrl+j', (e) => {
+    e.preventDefault();
+    onNavigate?.('down');
+  }, { enableOnFormTags: ['INPUT'], enabled: true }, [onNavigate]);
+
+  useHotkeys('ctrl+k', (e) => {
+    e.preventDefault();
+    onNavigate?.('up');
+  }, { enableOnFormTags: ['INPUT'], enabled: true }, [onNavigate]);
+
+  // Vim bindings - Ctrl+H (collapse) and Ctrl+L (expand)
+  useHotkeys('ctrl+h', (e) => {
+    e.preventDefault();
+    onExpandCollapse?.('collapse');
+  }, { enableOnFormTags: ['INPUT'], enabled: true }, [onExpandCollapse]);
+
+  useHotkeys('ctrl+l', (e) => {
+    e.preventDefault();
+    onExpandCollapse?.('expand');
+  }, { enableOnFormTags: ['INPUT'], enabled: true }, [onExpandCollapse]);
+
+  // Enter to select current item
+  useHotkeys('enter', (e) => {
+    e.preventDefault();
+    onSelectCurrent?.();
+  }, { enableOnFormTags: ['INPUT'], enabled: true }, [onSelectCurrent]);
+
   return (
     <div className="relative">
       <div className="relative flex items-center">
         <Search className="absolute left-3 w-4 h-4 pointer-events-none" style={{ color: theme.secondary }} />
         <input
+          ref={inputRef}
           type="text"
           value={query}
           onChange={handleChange}
